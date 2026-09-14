@@ -1,0 +1,143 @@
+name: kouun_db
+
+x-python-environment: &python-environment
+  TZ: UTC
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_NAME: ${POSTGRES_DB}
+
+x-python-service: &python-service
+  build:
+    context: .
+    dockerfile: docker/python/Dockerfile
+    args:
+      APP_UID: ${APP_UID:-1000}
+      APP_GID: ${APP_GID:-1000}
+
+  image: kouun-db-python:local
+  init: true
+  restart: "no"
+
+  depends_on:
+    db:
+      condition: service_healthy
+
+  networks:
+    - backend
+
+  profiles:
+    - jobs
+
+services:
+  db:
+    image: postgis/postgis:18-3.6
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: UTC
+      PGTZ: UTC
+
+    volumes:
+      - ./runtime/postgres:/var/lib/postgresql
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+    stop_grace_period: 60s
+
+    networks:
+      - backend
+
+  migrate:
+    image: postgis/postgis:18-3.6
+    restart: "no"
+
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+
+      COLLECTOR_DB_USER: ${COLLECTOR_DB_USER}
+      COLLECTOR_DB_PASSWORD: ${COLLECTOR_DB_PASSWORD}
+      ANALYZER_DB_USER: ${ANALYZER_DB_USER}
+      ANALYZER_DB_PASSWORD: ${ANALYZER_DB_PASSWORD}
+
+      MIGRATION_FILE: ${MIGRATION_FILE:-0001_create_service_roles.sql}
+
+    entrypoint: ["/bin/sh", "-eu", "-c"]
+
+    command:
+      - |
+        case "$$MIGRATION_FILE" in
+          [0-9][0-9][0-9][0-9]_*.sql) ;;
+          *)
+            echo "Invalid migration filename: $$MIGRATION_FILE" >&2
+            exit 2
+            ;;
+        esac
+
+        test -f "/migrations/$$MIGRATION_FILE"
+
+        exec psql \
+          --set=database_name="$$PGDATABASE" \
+          --set=collector_user="$$COLLECTOR_DB_USER" \
+          --set=collector_password="$$COLLECTOR_DB_PASSWORD" \
+          --set=analyzer_user="$$ANALYZER_DB_USER" \
+          --set=analyzer_password="$$ANALYZER_DB_PASSWORD" \
+          --file="/migrations/$$MIGRATION_FILE"
+
+    volumes:
+      - ./db/migrations:/migrations:ro
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    networks:
+      - backend
+
+    profiles:
+      - tools
+
+  collector:
+    <<: *python-service
+    command: ["python", "--version"]
+
+    environment:
+      <<: *python-environment
+      DB_USER: ${COLLECTOR_DB_USER}
+      DB_PASSWORD: ${COLLECTOR_DB_PASSWORD}
+
+    volumes:
+      - ./runtime/raw:/data/raw
+
+    networks:
+      - backend
+      - collector_egress
+
+  analyzer:
+    <<: *python-service
+    command: ["python", "--version"]
+
+    environment:
+      <<: *python-environment
+      DB_USER: ${ANALYZER_DB_USER}
+      DB_PASSWORD: ${ANALYZER_DB_PASSWORD}
+
+networks:
+  backend:
+    internal: true
+  collector_egress:

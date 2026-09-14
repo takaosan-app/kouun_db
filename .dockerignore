@@ -1,0 +1,29 @@
+# Version control
+.git/
+.gitignore
+
+# Secrets
+.env
+.env.*
+
+# Runtime data
+runtime/
+
+# Documentation and editor settings
+docs/
+.vscode/
+.idea/
+.DS_Store
+
+# Local Python files
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Test and coverage output
+tests/
+.coverage
+htmlcov/
