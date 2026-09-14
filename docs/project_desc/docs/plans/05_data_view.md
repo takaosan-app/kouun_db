@@ -1,6 +1,6 @@
-# 開発計画書 02.5：データ確認Viewer編
+# 開発計画書 05：データ確認Viewer編
 
-版：v0.1／更新日：2026-09-14  
+版：v0.2／更新日：2026-09-15
 到達目標：収集した観測所・観測値・品質・取込状況を、開発者がブラウザから安全に確認できるようにする。
 
 ## 1. Viewerの位置付け
@@ -33,7 +33,7 @@ Flutter Web／Android／iPhone
 | 用途 | 開発・管理用のデータ確認 |
 | UI | Python＋Streamlit |
 | DB | 既存のPostgreSQL＋PostGIS |
-| DB権限 | 読み取り権限を持つanalyzerユーザー |
+| DB権限 | 読み取り専用のviewerユーザー |
 | 実行環境 | Docker Composeの独立したviewerサービス |
 | Pythonイメージ | 初期はcollector・analyzerと共通 |
 | 公開範囲 | 初期はホストの`127.0.0.1`のみ |
@@ -220,7 +220,7 @@ src/
 - ホスト側は`127.0.0.1:8501`へバインド
 - DBのhealthcheck完了後に起動
 - `backend`ネットワークのみに接続
-- DB接続にはanalyzerユーザーを使用
+- DB接続にはviewerユーザーを使用
 - `collector_egress`には接続しない
 - 初期は既存Pythonイメージを共有
 
@@ -233,7 +233,7 @@ Viewerの機能が増え、依存関係やイメージサイズが収集処理�
 - PostgreSQLのポートを外部公開しない
 - Viewerのポートは`127.0.0.1`だけに公開
 - DBパスワードをコードへ記載しない
-- `.env`のanalyzer接続情報を使用
+- `.env`のviewer接続情報を使用
 - SQLはパラメーター化する
 - ViewerからINSERT、UPDATE、DELETEを実行しない
 - 任意SQL入力機能を設けない
@@ -286,7 +286,7 @@ Webhook URLは環境変数または秘密情報管理へ保存し、コード・
 
 - `docker compose`でViewerを起動できる
 - ブラウザから`127.0.0.1:8501`へ接続できる
-- ViewerがanalyzerユーザーでDBへ接続する
+- ViewerがviewerユーザーでDBへ接続する
 - ViewerからDBを更新できない
 - DB件数と容量を表示できる
 - 静岡県31観測所を一覧と地図で表示できる
@@ -314,3 +314,4 @@ Webhook URLは環境変数または秘密情報管理へ保存し、コード・
 | 日付 | 版 | 内容 |
 |---|---|---|
 | 2026-09-14 | v0.1 | 開発・管理用Streamlit Viewerの目的、画面、構成、セキュリティ、開発順序を追加 |
+| 2026-09-15 | v0.2 | Viewer専用の読み取り専用DBロールを使用する方針へ変更 |

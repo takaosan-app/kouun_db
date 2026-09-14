@@ -74,6 +74,8 @@ services:
       COLLECTOR_DB_PASSWORD: ${COLLECTOR_DB_PASSWORD}
       ANALYZER_DB_USER: ${ANALYZER_DB_USER}
       ANALYZER_DB_PASSWORD: ${ANALYZER_DB_PASSWORD}
+      VIEWER_DB_USER: ${VIEWER_DB_USER}
+      VIEWER_DB_PASSWORD: ${VIEWER_DB_PASSWORD}
 
       MIGRATION_FILE: ${MIGRATION_FILE:-0001_create_service_roles.sql}
 
@@ -97,6 +99,8 @@ services:
           --set=collector_password="$$COLLECTOR_DB_PASSWORD" \
           --set=analyzer_user="$$ANALYZER_DB_USER" \
           --set=analyzer_password="$$ANALYZER_DB_PASSWORD" \
+          --set=viewer_user="$$VIEWER_DB_USER" \
+          --set=viewer_password="$$VIEWER_DB_PASSWORD" \
           --file="/migrations/$$MIGRATION_FILE"
 
     volumes:
@@ -137,7 +141,38 @@ services:
       DB_USER: ${ANALYZER_DB_USER}
       DB_PASSWORD: ${ANALYZER_DB_PASSWORD}
 
+  viewer:
+    <<: *python-service
+
+    command:
+      [
+        "streamlit",
+        "run",
+        "src/viewer/app.py",
+        "--server.address=0.0.0.0",
+        "--server.port=8501",
+        "--server.headless=true",
+        "--server.fileWatcherType=none",
+        "--browser.gatherUsageStats=false",
+      ]
+
+    environment:
+      <<: *python-environment
+      DB_USER: ${VIEWER_DB_USER}
+      DB_PASSWORD: ${VIEWER_DB_PASSWORD}
+
+    ports:
+      - "127.0.0.1:8501:8501"
+
+    networks:
+      - backend
+      - viewer_ingress
+
+    profiles:
+      - viewer
+
 networks:
   backend:
     internal: true
   collector_egress:
+  viewer_ingress:
