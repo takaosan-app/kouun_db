@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from viewer.database import get_database_status
 from viewer.overview import render_overview
+from viewer.stations import render_stations
 
 
 def main() -> None:
@@ -46,12 +47,20 @@ def main() -> None:
         str(status["server_version"]),
     )
 
+    page = st.sidebar.radio(
+        "表示する画面",
+        ("DB概要", "観測所"),
+    )
+
     st.divider()
 
     try:
-        render_overview()
+        if page == "DB概要":
+            render_overview()
+        elif page == "観測所":
+            render_stations()
     except (psycopg.Error, RuntimeError) as error:
-        st.error("DB概要を取得できませんでした。")
+        st.error("画面のデータを取得できませんでした。")
         st.code(str(error))
 
 
