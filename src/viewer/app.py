@@ -5,6 +5,7 @@ import streamlit as st
 from pydantic import ValidationError
 
 from viewer.database import get_database_status
+from viewer.overview import render_overview
 
 
 def main() -> None:
@@ -45,7 +46,13 @@ def main() -> None:
         str(status["server_version"]),
     )
 
-    st.info("現在はV0です。次の段階でDB概要、観測所、観測値を追加します。")
+    st.divider()
+
+    try:
+        render_overview()
+    except (psycopg.Error, RuntimeError) as error:
+        st.error("DB概要を取得できませんでした。")
+        st.code(str(error))
 
 
 if __name__ == "__main__":

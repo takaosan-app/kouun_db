@@ -1,6 +1,7 @@
 # 開発計画書 05：データ確認Viewer編
 
-版：v0.2／更新日：2026-09-15
+版：v0.3／更新日：2026-09-15
+
 到達目標：収集した観測所・観測値・品質・取込状況を、開発者がブラウザから安全に確認できるようにする。
 
 ## 1. Viewerの位置付け
@@ -36,8 +37,8 @@ Flutter Web／Android／iPhone
 | DB権限 | 読み取り専用のviewerユーザー |
 | 実行環境 | Docker Composeの独立したviewerサービス |
 | Pythonイメージ | 初期はcollector・analyzerと共通 |
-| 公開範囲 | 初期はホストの`127.0.0.1`のみ |
-| 接続方法 | VS Codeのポート転送またはSSHポートフォワード |
+| 公開範囲 | Dockerはホストの`127.0.0.1`だけに公開し、Tailscale Serveでtailnet内へ提供 |
+| 接続方法 | MacからTailscale ServeのHTTPS URLへ接続 |
 | 外部通信 | Viewerサービスからの外部通信は原則不要 |
 | 本番利用 | 初期対象外。外部公開や複数利用者向けには使用しない |
 
@@ -219,9 +220,11 @@ src/
 - Streamlitをポート8501で起動
 - ホスト側は`127.0.0.1:8501`へバインド
 - DBのhealthcheck完了後に起動
-- `backend`ネットワークのみに接続
-- DB接続にはviewerユーザーを使用
+- `backend`と`viewer_ingress`ネットワークに接続
+- `backend`はDB接続に使用
+- `viewer_ingress`はホストの`127.0.0.1:8501`への公開に使用
 - `collector_egress`には接続しない
+- DB接続にはviewerユーザーを使用
 - 初期は既存Pythonイメージを共有
 
 Viewerの機能が増え、依存関係やイメージサイズが収集処理へ影響する場合は、Viewer専用Dockerfileと依存ロックへ分離する。
@@ -238,6 +241,9 @@ Viewerの機能が増え、依存関係やイメージサイズが収集処理�
 - ViewerからINSERT、UPDATE、DELETEを実行しない
 - 任意SQL入力機能を設けない
 - 大量検索を防ぐ期間・件数上限を設ける
+- ViewerをLANやインターネットへ直接公開しない
+- Tailscale Serveを使用し、tailnet内だけへ公開する
+- Tailscale Funnelは使用しない
 
 LANやインターネットへ公開する場合は、認証、HTTPS、アクセス制御、ログ、更新方針を別途設計する。
 
@@ -285,7 +291,7 @@ Webhook URLは環境変数または秘密情報管理へ保存し、コード・
 以下をすべて満たしたらV0～V3を完了とする。
 
 - `docker compose`でViewerを起動できる
-- ブラウザから`127.0.0.1:8501`へ接続できる
+- MacからTailscale ServeのHTTPS URLへ接続できる
 - ViewerがviewerユーザーでDBへ接続する
 - ViewerからDBを更新できない
 - DB件数と容量を表示できる
@@ -315,3 +321,4 @@ Webhook URLは環境変数または秘密情報管理へ保存し、コード・
 |---|---|---|
 | 2026-09-14 | v0.1 | 開発・管理用Streamlit Viewerの目的、画面、構成、セキュリティ、開発順序を追加 |
 | 2026-09-15 | v0.2 | Viewer専用の読み取り専用DBロールを使用する方針へ変更 |
+| 2026-09-15 | v0.3 | V0完了。Viewer専用ロール、localhost公開、Tailscale ServeによるMacからの接続を反映 |
