@@ -27,9 +27,20 @@ class ObservationRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ObservationParseIssue:
+    issue_code: str
+    observed_on: date
+    element_key: str
+    raw_value: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class ParsedJmaCsv:
     station_name: str
     observations: tuple[ObservationRecord, ...]
+    source_dates: tuple[date, ...] = ()
+    issues: tuple[ObservationParseIssue, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +61,23 @@ class SourceFileRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ObsdlAreaPageSourceFileRecord(SourceFileRecord):
+    area_count: int
+    domestic_area_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ObsdlAreaRecord:
+    area_code: str
+    area_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedObsdlAreaPage:
+    areas: tuple[ObsdlAreaRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ObservationSourceFileRecord(SourceFileRecord):
     station_key: str
     source_station_id: str
@@ -63,8 +91,28 @@ class AmedasMasterSourceFileRecord(SourceFileRecord):
 
 
 @dataclass(frozen=True, slots=True)
+class AreaObservationStation:
+    source_station_id: str
+    station_key: str
+    station_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class AreaObservationSourceFileRecord(
+    SourceFileRecord
+):
+    area_code: str
+    capability_code: str
+    stations: tuple[
+        AreaObservationStation,
+        ...,
+    ]
+    observation_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class ObsdlStationPageSourceFileRecord(SourceFileRecord):
-    prefecture_code: str
+    area_code: str
     active_count: int
     ended_count: int
 
@@ -72,7 +120,7 @@ class ObsdlStationPageSourceFileRecord(SourceFileRecord):
 @dataclass(frozen=True, slots=True)
 class ObsdlStationRecord:
     source_station_id: str
-    prefecture_code: str
+    area_code: str
     name: str
     kana_name: str
     capability_code: str
@@ -85,7 +133,7 @@ class ObsdlStationRecord:
 
 @dataclass(frozen=True, slots=True)
 class ParsedObsdlStationPage:
-    prefecture_code: str
+    area_code: str
     stations: tuple[ObsdlStationRecord, ...]
 
 

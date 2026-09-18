@@ -119,3 +119,17 @@ EXTENDED_ELEMENTS: tuple[ElementRequest, ...] = (
         "unit": "text",
     },
 )
+
+
+PRECIPITATION_ELEMENTS: tuple[ElementRequest, ...] = (
+    CORE_ELEMENTS[3],
+)
+
+ELEMENT_PROFILES: dict[
+    str,
+    tuple[ElementRequest, ...],
+] = {
+    "precipitation": PRECIPITATION_ELEMENTS,
+    "core": CORE_ELEMENTS,
+    "extended": EXTENDED_ELEMENTS,
+}

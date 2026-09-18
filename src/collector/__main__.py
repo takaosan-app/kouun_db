@@ -9,10 +9,7 @@ from pathlib import Path
 import requests
 
 from collector.jma_fetcher import collect_jma_data
-from collector.jma_elements import (
-    CORE_ELEMENTS,
-    EXTENDED_ELEMENTS,
-)
+from collector.jma_elements import ELEMENT_PROFILES
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--element-profile",
-        choices=("core", "extended"),
+        choices=tuple(ELEMENT_PROFILES),
         default="core",
         help="Elements to request from JMA.",
     )
@@ -54,11 +51,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    elements = (
-        EXTENDED_ELEMENTS
-        if args.element_profile == "extended"
-        else CORE_ELEMENTS
-    )
+    elements = ELEMENT_PROFILES[args.element_profile]
 
     try:
         result = collect_jma_data(

@@ -8,22 +8,19 @@ from pathlib import Path
 import psycopg
 
 from collector.database import connect_database
-from collector.jma_obsdl_station_metadata import (
-    load_obsdl_station_source_file,
+from collector.jma_obsdl_area_metadata import (
+    load_obsdl_area_source_file,
 )
-from collector.jma_obsdl_station_parser import (
-    parse_obsdl_station_page,
+from collector.jma_obsdl_area_parser import (
+    parse_obsdl_area_page,
 )
 from collector.models import (
-    ObsdlStationPageSourceFileRecord,
-    ParsedObsdlStationPage,
+    ObsdlAreaPageSourceFileRecord,
+    ParsedObsdlAreaPage,
 )
-from collector.obsdl_station_catalog_repository import (
-    resolve_obsdl_station_catalog,
-)
-from collector.obsdl_station_profile_repository import (
-    ObsdlStationProfileCounts,
-    upsert_obsdl_station_profiles,
+from collector.obsdl_area_repository import (
+    ObsdlAreaCounts,
+    upsert_obsdl_areas,
 )
 from collector.settings import DatabaseSettings
 from collector.source_file_repository import (
@@ -36,12 +33,12 @@ from collector.source_file_repository import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Import a JMA obsdl station page."
+        description="Import the JMA obsdl area page."
     )
     parser.add_argument(
         "html_path",
         type=Path,
-        help="Downloaded station-selection HTML.",
+        help="Downloaded observation-area HTML.",
     )
     parser.add_argument(
         "--metadata-path",
@@ -56,19 +53,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def import_obsdl_stations(
+def import_obsdl_areas(
     html_path: Path,
     metadata_path: Path,
     raw_root: Path,
-) -> tuple[int, ObsdlStationProfileCounts]:
-    source_file = load_obsdl_station_source_file(
+) -> tuple[int, ObsdlAreaCounts]:
+    source_file = load_obsdl_area_source_file(
         metadata_path,
         html_path,
         raw_root,
     )
-    page = parse_obsdl_station_page(
-        html_path.read_bytes(),
-        source_file.area_code,
+    page = parse_obsdl_area_page(
+        html_path.read_bytes()
     )
     _validate_page(source_file, page)
 
@@ -87,15 +83,9 @@ def import_obsdl_stations(
         connection.commit()
 
         try:
-            catalog = resolve_obsdl_station_catalog(
+            counts = upsert_obsdl_areas(
                 connection,
                 page,
-            )
-            counts = upsert_obsdl_station_profiles(
-                connection,
-                source_file_id=source_file_id,
-                page=page,
-                catalog=catalog,
             )
             finish_ingestion_run(
                 connection,
@@ -124,33 +114,28 @@ def import_obsdl_stations(
 
 
 def _validate_page(
-    source_file: ObsdlStationPageSourceFileRecord,
-    page: ParsedObsdlStationPage,
+    source_file: ObsdlAreaPageSourceFileRecord,
+    page: ParsedObsdlAreaPage,
 ) -> None:
-    if page.area_code != source_file.area_code:
+    area_count = len(page.areas)
+
+    if area_count != source_file.area_count:
         raise ValueError(
-            "Parsed area code does not match metadata."
+            "Area count does not match metadata."
         )
 
-    if len(page.stations) != source_file.source_row_count:
-        raise ValueError(
-            "Station count does not match metadata."
-        )
-
-    active_count = sum(
-        station.observation_ended_on is None
-        for station in page.stations
+    domestic_area_count = sum(
+        area.area_code != "99"
+        for area in page.areas
     )
-    ended_count = len(page.stations) - active_count
 
-    if active_count != source_file.active_count:
+    if (
+        domestic_area_count
+        != source_file.domestic_area_count
+    ):
         raise ValueError(
-            "Active station count does not match metadata."
-        )
-
-    if ended_count != source_file.ended_count:
-        raise ValueError(
-            "Ended station count does not match metadata."
+            "Domestic area count does not match "
+            "metadata."
         )
 
 
@@ -163,7 +148,7 @@ def main() -> int:
     )
 
     try:
-        ingestion_run_id, counts = import_obsdl_stations(
+        ingestion_run_id, counts = import_obsdl_areas(
             html_path=args.html_path,
             metadata_path=metadata_path,
             raw_root=args.raw_root,
@@ -175,7 +160,7 @@ def main() -> int:
         psycopg.Error,
     ) as error:
         print(
-            f"Station page import failed: {error}",
+            f"Area page import failed: {error}",
             file=sys.stderr,
         )
         return 1
@@ -188,8 +173,6 @@ def main() -> int:
                 "inserted": counts.inserted,
                 "updated": counts.updated,
                 "unchanged": counts.unchanged,
-                "matched": counts.matched,
-                "unmatched": counts.unmatched,
             },
             ensure_ascii=False,
         )

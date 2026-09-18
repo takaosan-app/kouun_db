@@ -9,12 +9,14 @@ from collector.models import (
     ParsedObsdlStationPage,
 )
 
-OBSERVATION_SOURCE_KEY = "jma_obsdl"
-MATCH_DISTANCE_METERS = 1000
+from collector.observation_area_repository import (
+    assign_station_observation_area,
+)
+from collector.obsdl_station_match_repository import (
+    match_active_station,
+)
 
-AREA_NAMES_BY_PREFECTURE_CODE = {
-    "50": "静岡",
-}
+OBSERVATION_SOURCE_KEY = "jma_obsdl"
 
 
 class ObsdlStationCatalogError(RuntimeError):
@@ -31,15 +33,10 @@ def resolve_obsdl_station_catalog(
     connection: psycopg.Connection,
     page: ParsedObsdlStationPage,
 ) -> ObsdlStationCatalog:
-    area_name = AREA_NAMES_BY_PREFECTURE_CODE.get(
-        page.prefecture_code
+    _require_observation_area(
+        connection,
+        page.area_code,
     )
-
-    if area_name is None:
-        raise ObsdlStationCatalogError(
-            "Prefecture code is not configured: "
-            f"{page.prefecture_code}"
-        )
 
     source_id = _resolve_observation_source_id(
         connection
@@ -57,10 +54,14 @@ def resolve_obsdl_station_catalog(
             )
             continue
 
-        station_id = _match_active_station(
+        station_id = match_active_station(
             connection,
-            area_name,
             station,
+        )
+        assign_station_observation_area(
+            connection,
+            station_id=station_id,
+            area_code=page.area_code,
         )
         _register_observation_mapping(
             connection,
@@ -74,6 +75,26 @@ def resolve_obsdl_station_catalog(
         observation_source_id=source_id,
         station_ids=station_ids,
     )
+
+
+def _require_observation_area(
+    connection: psycopg.Connection,
+    area_code: str,
+) -> None:
+    row = connection.execute(
+        """
+        SELECT true
+        FROM weather.observation_area
+        WHERE area_code = %s
+        """,
+        (area_code,),
+    ).fetchone()
+
+    if row is None:
+        raise ObsdlStationCatalogError(
+            "Observation area is not registered: "
+            f"{area_code}"
+        )
 
 
 def _resolve_observation_source_id(
@@ -95,55 +116,6 @@ def _resolve_observation_source_id(
         )
 
     return int(row[0])
-
-
-def _match_active_station(
-    connection: psycopg.Connection,
-    area_name: str,
-    station: ObsdlStationRecord,
-) -> int:
-    rows = connection.execute(
-        """
-        SELECT DISTINCT logical_station.id
-        FROM weather.station AS logical_station
-        JOIN weather.station_version AS version
-            ON version.station_id = logical_station.id
-        WHERE version.effective_to IS NULL
-          AND version.area_name = %s
-          AND version.name = %s
-          AND ST_DWithin(
-              version.location,
-              ST_SetSRID(
-                  ST_MakePoint(%s, %s),
-                  4326
-              )::geography,
-              %s
-          )
-        """,
-        (
-            area_name,
-            station.name,
-            station.longitude,
-            station.latitude,
-            MATCH_DISTANCE_METERS,
-        ),
-    ).fetchall()
-
-    if not rows:
-        raise ObsdlStationCatalogError(
-            "Active station could not be matched: "
-            f"{station.name} "
-            f"({station.source_station_id})"
-        )
-
-    if len(rows) > 1:
-        raise ObsdlStationCatalogError(
-            "Active station matched multiple logical "
-            f"stations: {station.name} "
-            f"({station.source_station_id})"
-        )
-
-    return int(rows[0][0])
 
 
 def _resolve_ended_station_id(

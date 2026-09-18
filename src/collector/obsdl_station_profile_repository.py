@@ -114,7 +114,7 @@ def _upsert_station_profile(
             source_file_id,
             station_id,
             source_station_id,
-            prefecture_code,
+            area_code,
             name,
             kana_name,
             capability_code,
@@ -145,8 +145,8 @@ def _upsert_station_profile(
         ) DO UPDATE
         SET
             station_id = EXCLUDED.station_id,
-            prefecture_code =
-                EXCLUDED.prefecture_code,
+            area_code =
+                EXCLUDED.area_code,
             name = EXCLUDED.name,
             kana_name = EXCLUDED.kana_name,
             capability_code =
@@ -158,7 +158,7 @@ def _upsert_station_profile(
             raw_record = EXCLUDED.raw_record
         WHERE (
             jma_obsdl_station_profile.station_id,
-            jma_obsdl_station_profile.prefecture_code,
+            jma_obsdl_station_profile.area_code,
             jma_obsdl_station_profile.name,
             jma_obsdl_station_profile.kana_name,
             jma_obsdl_station_profile.capability_code,
@@ -168,7 +168,7 @@ def _upsert_station_profile(
             jma_obsdl_station_profile.raw_record
         ) IS DISTINCT FROM (
             EXCLUDED.station_id,
-            EXCLUDED.prefecture_code,
+            EXCLUDED.area_code,
             EXCLUDED.name,
             EXCLUDED.kana_name,
             EXCLUDED.capability_code,
@@ -183,7 +183,7 @@ def _upsert_station_profile(
             source_file_id,
             station_id,
             station.source_station_id,
-            station.prefecture_code,
+            station.area_code,
             station.name,
             station.kana_name,
             station.capability_code,

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from collector.models import (
-    ObsdlStationPageSourceFileRecord,
+    ObsdlAreaPageSourceFileRecord,
 )
 from collector.source_metadata import (
     SourceMetadataError,
@@ -16,25 +15,12 @@ from collector.source_metadata import (
     validate_source_artifact,
 )
 
-AREA_CODE_PATTERN = re.compile(r"\d{2}")
 
-
-def _read_area_code(
-    metadata: dict[str, object],
-) -> str:
-    key = (
-        "area_code"
-        if "area_code" in metadata
-        else "prefecture_code"
-    )
-    return require_str(metadata, key)
-
-
-def load_obsdl_station_source_file(
+def load_obsdl_area_source_file(
     metadata_path: Path,
     html_path: Path,
     raw_root: Path,
-) -> ObsdlStationPageSourceFileRecord:
+) -> ObsdlAreaPageSourceFileRecord:
     artifact = validate_source_artifact(
         metadata_path=metadata_path,
         content_path=html_path,
@@ -52,26 +38,17 @@ def load_obsdl_station_source_file(
             f"Unexpected source key: {source_key}"
         )
 
-    area_code = _read_area_code(metadata)
-
-    if not AREA_CODE_PATTERN.fullmatch(
-        area_code
-    ):
-        raise SourceMetadataError(
-            "Area code must contain two digits."
-        )
-
     source_row_count = require_int(
         metadata,
         "source_row_count",
     )
-    active_count = require_int(
+    area_count = require_int(
         metadata,
-        "active_count",
+        "area_count",
     )
-    ended_count = require_int(
+    domestic_area_count = require_int(
         metadata,
-        "ended_count",
+        "domestic_area_count",
     )
 
     if source_row_count <= 0:
@@ -79,15 +56,15 @@ def load_obsdl_station_source_file(
             "Source row count must be positive."
         )
 
-    if active_count < 0 or ended_count < 0:
+    if area_count != source_row_count:
         raise SourceMetadataError(
-            "Station counts must not be negative."
+            "Area count does not match source row count."
         )
 
-    if active_count + ended_count != source_row_count:
+    if not 0 <= domestic_area_count <= area_count:
         raise SourceMetadataError(
-            "Active and ended station counts do not "
-            "match the total."
+            "Domestic area count is outside the "
+            "valid range."
         )
 
     request_parameters = require_dict(
@@ -95,13 +72,12 @@ def load_obsdl_station_source_file(
         "request_parameters",
     )
 
-    if request_parameters.get("pd") != area_code:
+    if request_parameters.get("pd") != "00":
         raise SourceMetadataError(
-            "Requested area code does not match "
-            "metadata."
+            "Area page request parameter pd must be 00."
         )
 
-    return ObsdlStationPageSourceFileRecord(
+    return ObsdlAreaPageSourceFileRecord(
         source_key=source_key,
         storage_path=artifact.storage_path,
         sha256=artifact.sha256,
@@ -127,7 +103,6 @@ def load_obsdl_station_source_file(
         ),
         request_parameters=request_parameters,
         metadata=metadata,
-        area_code=area_code,
-        active_count=active_count,
-        ended_count=ended_count,
+        area_count=area_count,
+        domestic_area_count=domestic_area_count,
     )

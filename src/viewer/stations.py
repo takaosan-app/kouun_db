@@ -5,6 +5,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from viewer.areas import select_observation_area
 from viewer.database import connect_database
 
 CAPABILITY_NAMES = (
@@ -29,7 +30,7 @@ STATIONS_QUERY = """
               SELECT 1
               FROM weather.jma_obsdl_station_profile AS profile
               WHERE profile.source_file_id = source_file.id
-                AND profile.prefecture_code = %s
+                AND profile.area_code = %s
           )
         ORDER BY
             source_file.retrieved_at DESC,
@@ -73,22 +74,21 @@ STATIONS_QUERY = """
         LIMIT 1
     ) AS official_id
         ON true
-    WHERE profile.prefecture_code = %s
+    WHERE profile.area_code = %s
     ORDER BY
-        profile.observation_ended_on NULLS FIRST,
-        profile.name,
+        official_id.source_station_id NULLS LAST,
         profile.source_station_id
 """
 
 
 @st.cache_data(ttl=300)
 def fetch_stations(
-    prefecture_code: str = "50",
+    area_code: str,
 ) -> pd.DataFrame:
     with connect_database() as connection:
         rows: list[dict[str, Any]] = connection.execute(
             STATIONS_QUERY,
-            (prefecture_code, prefecture_code),
+            (area_code, area_code),
         ).fetchall()
 
     return pd.DataFrame(rows)
@@ -118,10 +118,19 @@ def format_station_status(ended_on: object) -> str:
 def render_stations() -> None:
     st.header("観測所")
 
-    stations = fetch_stations()
+    area_code = select_observation_area(
+        key="stations_area",
+    )
+
+    if area_code is None:
+        return
+
+    stations = fetch_stations(area_code)
 
     if stations.empty:
-        st.info("静岡県の地点情報はまだ登録されていません。")
+        st.info(
+            "選択した地域の地点情報はまだ登録されていません。"
+        )
         return
 
     current_count = int(

@@ -13,8 +13,7 @@ import requests
 from collector.date_ranges import DateRange, split_into_months
 from collector.import_jma_csv import import_jma_csv
 from collector.jma_elements import (
-    CORE_ELEMENTS,
-    EXTENDED_ELEMENTS,
+    ELEMENT_PROFILES,
     ElementRequest,
 )
 from collector.jma_fetcher import collect_jma_data
@@ -51,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--element-profile",
-        choices=("core", "extended"),
+        choices=tuple(ELEMENT_PROFILES),
         default="core",
     )
     return parser.parse_args()
@@ -63,11 +62,7 @@ def run_batch(args: argparse.Namespace) -> dict[str, int]:
             "request-delay must be at least 5 seconds."
         )
 
-    elements = (
-        EXTENDED_ELEMENTS
-        if args.element_profile == "extended"
-        else CORE_ELEMENTS
-    )
+    elements = ELEMENT_PROFILES[args.element_profile]
     periods = split_into_months(
         args.start_date,
         args.end_date,

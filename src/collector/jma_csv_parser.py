@@ -5,12 +5,17 @@ import io
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from collector.jma_csv_layout import (
-    CsvLayout,
-    LAYOUTS_BY_COLUMN_COUNT,
-    ValueKind,
+from collector.jma_csv_layout import ValueKind
+from collector.jma_csv_layout_builder import (
+    CsvLayoutBuildError,
+    build_csv_layout,
 )
-from collector.models import ObservationRecord, ParsedJmaCsv, ValueState
+from collector.models import (
+    ObservationParseIssue,
+    ObservationRecord,
+    ParsedJmaCsv,
+    ValueState,
+)
 
 ENCODING = "cp932"
 
@@ -46,22 +51,28 @@ def parse_jma_csv(content: bytes) -> ParsedJmaCsv:
         raise JmaCsvError(f"Invalid CSV structure: {error}") from error
 
     header_index = _find_header_index(rows)
-    layout = _select_layout(rows[header_index])
-    _validate_header(rows[header_index], layout)
-
     station_name = _read_station_name(rows, header_index)
     detail_index = _find_detail_header_index(
         rows,
         header_index + 1,
     )
-    _validate_detail_header(
-        rows,
-        header_index,
-        detail_index,
-        layout,
-    )
+
+    try:
+        layout = build_csv_layout(
+            header_row=rows[header_index],
+            subheader_rows=rows[
+                header_index + 1 : detail_index
+            ],
+            detail_row=rows[detail_index],
+        )
+    except CsvLayoutBuildError as error:
+        raise JmaCsvError(
+            f"Unsupported CSV layout: {error}"
+        ) from error
 
     observations: list[ObservationRecord] = []
+    issues: list[ObservationParseIssue] = []
+    source_dates: list[date] = []
     previous_date: date | None = None
 
     for row_number, row in enumerate(
@@ -85,28 +96,63 @@ def parse_jma_csv(content: bytes) -> ParsedJmaCsv:
             )
 
         previous_date = observed_on
+        source_dates.append(observed_on)
 
         for column in layout.columns:
-            observations.append(
-                _parse_observation(
-                    row=row,
-                    row_number=row_number,
-                    observed_on=observed_on,
-                    element_key=column.element_key,
-                    value_kind=column.value_kind,
-                    value_index=column.value_index,
-                    phenomenon_index=column.phenomenon_index,
-                    quality_index=column.quality_index,
-                    homogeneity_index=column.homogeneity_index,
-                )
+            observation, issue = _parse_observation(
+                row=row,
+                row_number=row_number,
+                observed_on=observed_on,
+                element_key=column.element_key,
+                value_kind=column.value_kind,
+                value_index=column.value_index,
+                phenomenon_index=column.phenomenon_index,
+                quality_index=column.quality_index,
+                homogeneity_index=column.homogeneity_index,
             )
-    if not observations:
-        raise JmaCsvError("CSV contains no observation rows.")
+            observations.append(observation)
+
+            if issue is not None:
+                issues.append(issue)
+
+    available_element_keys = {
+        record.element_key
+        for record in observations
+        if record.raw_value
+    }
+
+    issues = [
+        issue
+        for issue in issues
+        if issue.element_key in available_element_keys
+    ]
+
+    observations = _remove_elements_without_values(
+        observations
+    )
 
     return ParsedJmaCsv(
         station_name=station_name,
         observations=tuple(observations),
+        source_dates=tuple(source_dates),
+        issues=tuple(issues),
     )
+
+
+def _remove_elements_without_values(
+    observations: list[ObservationRecord],
+) -> list[ObservationRecord]:
+    available_element_keys = {
+        record.element_key
+        for record in observations
+        if record.raw_value
+    }
+
+    return [
+        record
+        for record in observations
+        if record.element_key in available_element_keys
+    ]
 
 
 def _find_header_index(rows: list[list[str]]) -> int:
@@ -115,24 +161,6 @@ def _find_header_index(rows: list[list[str]]) -> int:
             return index
 
     raise JmaCsvError("Date header was not found.")
-
-
-def _validate_header(
-    row: list[str],
-    layout: CsvLayout,
-) -> None:
-    if not row or row[0].strip() != "年月日":
-        raise JmaCsvError("CSV does not start with a date column.")
-
-    for column in layout.columns:
-        actual = row[column.value_index].strip()
-
-        if actual != column.header_name:
-            raise JmaCsvError(
-                f"Header mismatch for {column.element_key}: "
-                f"expected {column.header_name!r}, "
-                f"received {actual!r}."
-            )
 
 
 def _read_station_name(rows: list[list[str]], header_index: int) -> str:
@@ -153,15 +181,6 @@ def _read_station_name(rows: list[list[str]], header_index: int) -> str:
     return names.pop()
 
 
-def _select_layout(row: list[str]) -> CsvLayout:
-    try:
-        return LAYOUTS_BY_COLUMN_COUNT[len(row)]
-    except KeyError as error:
-        raise JmaCsvError(
-            f"Unsupported CSV layout with {len(row)} columns."
-        ) from error
-
-
 def _find_detail_header_index(
     rows: list[list[str]],
     start_index: int,
@@ -174,69 +193,6 @@ def _find_detail_header_index(
             return index
 
     raise JmaCsvError("Detail header was not found.")
-
-
-def _validate_detail_header(
-    rows: list[list[str]],
-    header_index: int,
-    detail_index: int,
-    layout: CsvLayout,
-) -> None:
-    detail_row = rows[detail_index]
-
-    if len(detail_row) != layout.column_count:
-        raise JmaCsvError(
-            "CSV detail header has an unexpected column count."
-        )
-
-    subheader_rows = rows[
-        header_index + 1 : detail_index
-    ]
-
-    for column in layout.columns:
-        if (
-            detail_row[column.quality_index].strip()
-            != "品質情報"
-        ):
-            raise JmaCsvError(
-                f"Quality header mismatch for "
-                f"{column.element_key}."
-            )
-
-        if (
-            detail_row[column.homogeneity_index].strip()
-            != "均質番号"
-        ):
-            raise JmaCsvError(
-                f"Homogeneity header mismatch for "
-                f"{column.element_key}."
-            )
-
-        if column.phenomenon_index is not None:
-            if (
-                detail_row[
-                    column.phenomenon_index
-                ].strip()
-                != "現象なし情報"
-            ):
-                raise JmaCsvError(
-                    f"Phenomenon header mismatch for "
-                    f"{column.element_key}."
-                )
-
-        if column.subheader_name is not None:
-            found = any(
-                len(row) > column.value_index
-                and row[column.value_index].strip()
-                == column.subheader_name
-                for row in subheader_rows
-            )
-
-            if not found:
-                raise JmaCsvError(
-                    f"Subheader mismatch for "
-                    f"{column.element_key}."
-                )
 
 
 def _parse_date(raw_date: str, row_number: int) -> date:
@@ -260,22 +216,30 @@ def _parse_observation(
     phenomenon_index: int | None,
     quality_index: int,
     homogeneity_index: int,
-) -> ObservationRecord:
+) -> tuple[
+    ObservationRecord,
+    ObservationParseIssue | None,
+]:
     raw_value = row[value_index].strip()
     quality_code = row[quality_index].strip()
+    issue: ObservationParseIssue | None = None
 
     if not quality_code:
         raise JmaCsvError(
-            f"Quality code is empty at row {row_number}, "
-            f"element {element_key}."
+            f"Quality code is empty at row "
+            f"{row_number}, element {element_key}."
         )
 
     try:
-        value_state = QUALITY_STATES[quality_code]
+        value_state = QUALITY_STATES[
+            quality_code
+        ]
     except KeyError as error:
         raise JmaCsvError(
-            f"Unknown quality code {quality_code!r} "
-            f"at row {row_number}, element {element_key}."
+            f"Unknown quality code "
+            f"{quality_code!r} "
+            f"at row {row_number}, "
+            f"element {element_key}."
         ) from error
 
     value, text_value = _parse_value(
@@ -294,18 +258,23 @@ def _parse_observation(
         element_key=element_key,
     )
 
-    homogeneity_number = row[homogeneity_index].strip() or None
+    homogeneity_number = (
+        row[homogeneity_index].strip() or None
+    )
 
-    return ObservationRecord(
-        observed_on=observed_on,
-        element_key=element_key,
-        raw_value=raw_value,
-        value=value,
-        text_value=text_value,
-        value_state=value_state,
-        quality_code=quality_code,
-        homogeneity_number=homogeneity_number,
-        no_phenomenon=no_phenomenon,
+    return (
+        ObservationRecord(
+            observed_on=observed_on,
+            element_key=element_key,
+            raw_value=raw_value,
+            value=value,
+            text_value=text_value,
+            value_state=value_state,
+            quality_code=quality_code,
+            homogeneity_number=homogeneity_number,
+            no_phenomenon=no_phenomenon,
+        ),
+        issue,
     )
 
 
@@ -323,6 +292,9 @@ def _parse_value(
                 f"at row {row_number}, element {element_key}."
             )
         return None, None
+
+    if not raw_value and value_kind == "text":
+        return None, ""
 
     if not raw_value:
         raise JmaCsvError(

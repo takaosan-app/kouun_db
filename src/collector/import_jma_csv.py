@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from collections.abc import Collection
+from datetime import date
 from pathlib import Path
 
 import psycopg
@@ -13,7 +14,6 @@ from collector.database import connect_database
 from collector.jma_csv_parser import parse_jma_csv
 from collector.jma_metadata import load_jma_source_file
 from collector.models import (
-    ObservationRecord,
     ObservationSourceFileRecord,
 )
 from collector.observation_repository import (
@@ -63,7 +63,10 @@ def import_jma_csv(
         raw_root,
     )
     parsed = parse_jma_csv(csv_path.read_bytes())
-    _validate_parsed_period(source_file, parsed.observations)
+    _validate_parsed_period(
+        source_file,
+        parsed.source_dates,
+    )
 
     settings = DatabaseSettings()
     connection = connect_database(settings)
@@ -129,9 +132,9 @@ def import_jma_csv(
 
 def _validate_parsed_period(
     source_file: ObservationSourceFileRecord,
-    observations: Collection[ObservationRecord],
+    source_dates: Collection[date],
 ) -> None:
-    observed_dates = {record.observed_on for record in observations}
+    observed_dates = set(source_dates)
 
     if len(observed_dates) != source_file.source_row_count:
         raise ValueError(
@@ -142,15 +145,21 @@ def _validate_parsed_period(
 
     if (
         source_file.requested_start_date is not None
-        and min(observed_dates) != source_file.requested_start_date
+        and min(observed_dates)
+        != source_file.requested_start_date
     ):
-        raise ValueError("First CSV date does not match metadata.")
+        raise ValueError(
+            "First CSV date does not match metadata."
+        )
 
     if (
         source_file.requested_end_date is not None
-        and max(observed_dates) != source_file.requested_end_date
+        and max(observed_dates)
+        != source_file.requested_end_date
     ):
-        raise ValueError("Last CSV date does not match metadata.")
+        raise ValueError(
+            "Last CSV date does not match metadata."
+        )
 
 
 def main() -> int:

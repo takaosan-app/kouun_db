@@ -14,8 +14,8 @@ from collector.jma_fetcher import (
     create_session,
     write_atomically,
 )
-from collector.jma_obsdl_station_parser import (
-    parse_obsdl_station_page,
+from collector.jma_obsdl_area_parser import (
+    parse_obsdl_area_page,
 )
 
 SOURCE_URL = (
@@ -25,47 +25,40 @@ SOURCE_URL = (
 
 
 @dataclass(frozen=True, slots=True)
-class StationPageCollectionResult:
+class AreaPageCollectionResult:
     html_path: Path
     metadata_path: Path
-    station_count: int
-    active_count: int
-    ended_count: int
+    area_count: int
+    domestic_area_count: int
     sha256: str
 
 
-def collect_obsdl_station_page(
+def collect_obsdl_area_page(
     *,
-    area_code: str,
     output_dir: Path,
-) -> StationPageCollectionResult:
+) -> AreaPageCollectionResult:
     with create_session() as session:
         response = session.post(
             SOURCE_URL,
-            data={"pd": area_code},
+            data={"pd": "00"},
             timeout=30,
         )
         response.raise_for_status()
 
     content = response.content
-    parsed = parse_obsdl_station_page(
-        content,
-        area_code,
-    )
+    parsed = parse_obsdl_area_page(content)
     retrieved_at = datetime.now(timezone.utc)
     digest = hashlib.sha256(content).hexdigest()
 
-    active_count = sum(
-        station.observation_ended_on is None
-        for station in parsed.stations
+    domestic_area_count = sum(
+        area.area_code != "99"
+        for area in parsed.areas
     )
-    ended_count = len(parsed.stations) - active_count
 
     destination = (
         output_dir
         / "jma"
-        / "obsdl_station"
-        / area_code
+        / "obsdl_area"
         / f"{retrieved_at.year:04d}"
         / f"{retrieved_at.month:02d}"
     )
@@ -74,9 +67,7 @@ def collect_obsdl_station_page(
     timestamp = retrieved_at.strftime(
         "%Y%m%dT%H%M%S%fZ"
     )
-    basename = (
-        f"station_{area_code}_{timestamp}"
-    )
+    basename = f"area_index_{timestamp}"
     html_path = destination / f"{basename}.html"
     metadata_path = destination / f"{basename}.json"
 
@@ -84,12 +75,11 @@ def collect_obsdl_station_page(
         "source_key": "jma_obsdl_station",
         "source": "Japan Meteorological Agency",
         "source_url": SOURCE_URL,
-        "area_code": area_code,
         "retrieved_at_utc": retrieved_at.isoformat(),
         "encoding": "utf-8",
-        "source_row_count": len(parsed.stations),
-        "active_count": active_count,
-        "ended_count": ended_count,
+        "source_row_count": len(parsed.areas),
+        "area_count": len(parsed.areas),
+        "domestic_area_count": domestic_area_count,
         "byte_size": len(content),
         "sha256": digest,
         "content_type": response.headers.get(
@@ -97,7 +87,7 @@ def collect_obsdl_station_page(
         ),
         "collector_version": "0.1.0",
         "request_parameters": {
-            "pd": area_code,
+            "pd": "00",
         },
     }
 
@@ -111,23 +101,20 @@ def collect_obsdl_station_page(
         ).encode("utf-8"),
     )
 
-    return StationPageCollectionResult(
+    return AreaPageCollectionResult(
         html_path=html_path,
         metadata_path=metadata_path,
-        station_count=len(parsed.stations),
-        active_count=active_count,
-        ended_count=ended_count,
+        area_count=len(parsed.areas),
+        domestic_area_count=domestic_area_count,
         sha256=digest,
     )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Download a JMA obsdl station page."
-    )
-    parser.add_argument(
-        "--area-code",
-        required=True,
+        description=(
+            "Download the JMA obsdl observation-area page."
+        )
     )
     parser.add_argument(
         "--output-dir",
@@ -141,8 +128,7 @@ def main() -> int:
     args = parse_args()
 
     try:
-        result = collect_obsdl_station_page(
-            area_code=args.area_code,
+        result = collect_obsdl_area_page(
             output_dir=args.output_dir,
         )
     except (
@@ -151,7 +137,7 @@ def main() -> int:
         requests.RequestException,
     ) as error:
         print(
-            f"Station page collection failed: {error}",
+            f"Area page collection failed: {error}",
             file=sys.stderr,
         )
         return 1
@@ -163,9 +149,9 @@ def main() -> int:
                 "metadata_path": str(
                     result.metadata_path
                 ),
-                "station_count": result.station_count,
-                "active_count": result.active_count,
-                "ended_count": result.ended_count,
+                "area_count": result.area_count,
+                "domestic_area_count":
+                    result.domestic_area_count,
                 "sha256": result.sha256,
             },
             ensure_ascii=False,

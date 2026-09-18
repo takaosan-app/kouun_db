@@ -15,3 +15,6 @@ class DatabaseSettings(BaseSettings):
     name: str
     user: str
     password: SecretStr
+
+
+SCRAPING_INTERVAL = 2.0

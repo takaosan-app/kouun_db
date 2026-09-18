@@ -12,7 +12,7 @@ from collector.models import (
 )
 
 STATION_ID_PATTERN = re.compile(r"[as]\d{4,5}")
-PREFECTURE_CODE_PATTERN = re.compile(r"\d{2}")
+AREA_CODE_PATTERN = re.compile(r"\d{2}")
 CAPABILITY_PATTERN = re.compile(r"[012]{6}")
 
 NAME_PATTERN = re.compile(
@@ -41,13 +41,13 @@ class ObsdlStationParseError(ValueError):
 
 def parse_obsdl_station_page(
     content: bytes,
-    prefecture_code: str,
+    area_code: str,
 ) -> ParsedObsdlStationPage:
-    if not PREFECTURE_CODE_PATTERN.fullmatch(
-        prefecture_code
+    if not AREA_CODE_PATTERN.fullmatch(
+        area_code
     ):
         raise ObsdlStationParseError(
-            "Prefecture code must contain two digits."
+            "Area code must contain two digits."
         )
 
     soup = BeautifulSoup(
@@ -63,7 +63,7 @@ def parse_obsdl_station_page(
 
         record = _parse_station_node(
             node,
-            prefecture_code,
+            area_code,
         )
         existing = stations_by_id.get(
             record.source_station_id
@@ -83,14 +83,14 @@ def parse_obsdl_station_page(
         )
 
     return ParsedObsdlStationPage(
-        prefecture_code=prefecture_code,
+        area_code=area_code,
         stations=tuple(stations_by_id.values()),
     )
 
 
 def _parse_station_node(
     node: Tag,
-    prefecture_code: str,
+    area_code: str,
 ) -> ObsdlStationRecord:
     values: dict[str, str] = {}
 
@@ -109,7 +109,7 @@ def _parse_station_node(
         "stid",
     )
     name = _require_value(values, "stname")
-    actual_prefecture_code = _require_value(
+    actual_area_code = _require_value(
         values,
         "prid",
     )
@@ -125,10 +125,10 @@ def _parse_station_node(
             f"Invalid station ID: {source_station_id}"
         )
 
-    if actual_prefecture_code != prefecture_code:
+    if actual_area_code != area_code:
         raise ObsdlStationParseError(
-            "Station prefecture code does not match request: "
-            f"{actual_prefecture_code} != {prefecture_code}"
+            "Station area code does not match request: "
+            f"{actual_area_code} != {area_code}"
         )
 
     if not CAPABILITY_PATTERN.fullmatch(
@@ -165,7 +165,7 @@ def _parse_station_node(
 
     return ObsdlStationRecord(
         source_station_id=source_station_id,
-        prefecture_code=prefecture_code,
+        area_code=area_code,
         name=name,
         kana_name=_extract_text(
             KANA_PATTERN,

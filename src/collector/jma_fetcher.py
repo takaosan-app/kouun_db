@@ -12,6 +12,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from collector.jma_elements import CORE_ELEMENTS, ElementRequest
+from collector.jma_request import build_jma_payload
 
 SOURCE_URL = "https://www.data.jma.go.jp/risk/obsdl/show/table"
 ENCODING = "cp932"
@@ -40,11 +41,11 @@ def collect_jma_data(
         start_date,
         end_date,
     )
-    payload = build_payload(
-        start_date,
-        end_date,
-        station_id,
-        elements,
+    payload = build_jma_payload(
+        start_date=start_date,
+        end_date=end_date,
+        station_ids=(station_id,),
+        elements=elements,
     )
 
     with create_session() as session:
@@ -116,46 +117,6 @@ def collect_jma_data(
         row_count=row_count,
         sha256=digest,
     )
-
-
-def build_payload(
-    start_date: date,
-    end_date: date,
-    station_id: str,
-    elements: tuple[ElementRequest, ...] = CORE_ELEMENTS,
-) -> dict[str, str]:
-    return {
-        "stationNumList": json.dumps([station_id]),
-        "aggrgPeriod": "1",
-        "elementNumList": json.dumps(
-            [
-                [element["code"], element["option"]]
-                for element in elements
-            ]
-        ),
-        "interAnnualType": "1",
-        "ymdList": json.dumps(
-            [
-                str(start_date.year),
-                str(end_date.year),
-                str(start_date.month),
-                str(end_date.month),
-                str(start_date.day),
-                str(end_date.day),
-            ]
-        ),
-        "optionNumList": "[]",
-        "downloadFlag": "true",
-        "rmkFlag": "1",
-        "disconnectFlag": "1",
-        "youbiFlag": "0",
-        "fukenFlag": "0",
-        "kijiFlag": "0",
-        "csvFlag": "1",
-        "jikantaiFlag": "0",
-        "jikantaiList": "[]",
-        "ymdLiteral": "1",
-    }
 
 
 def create_session() -> requests.Session:

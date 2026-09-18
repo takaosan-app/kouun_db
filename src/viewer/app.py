@@ -5,6 +5,8 @@ import streamlit as st
 from pydantic import ValidationError
 
 from viewer.database import get_database_status
+from viewer.issues import render_collection_issues
+from viewer.observations import render_observations
 from viewer.overview import render_overview
 from viewer.stations import render_stations
 
@@ -49,7 +51,12 @@ def main() -> None:
 
     page = st.sidebar.radio(
         "表示する画面",
-        ("DB概要", "観測所"),
+        (
+            "DB概要",
+            "観測所",
+            "観測データ",
+            "収集警告・エラー",
+        ),
     )
 
     st.divider()
@@ -59,6 +66,10 @@ def main() -> None:
             render_overview()
         elif page == "観測所":
             render_stations()
+        elif page == "観測データ":
+            render_observations()
+        elif page == "収集警告・エラー":
+            render_collection_issues()
     except (psycopg.Error, RuntimeError) as error:
         st.error("画面のデータを取得できませんでした。")
         st.code(str(error))
