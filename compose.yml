@@ -144,6 +144,8 @@ services:
   viewer:
     <<: *python-service
 
+    restart: unless-stopped
+
     command:
       [
         "streamlit",

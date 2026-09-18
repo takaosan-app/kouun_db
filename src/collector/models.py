@@ -163,3 +163,23 @@ class ParsedAmedasMaster:
     effective_on: date
     source_csv_name: str
     stations: tuple[AmedasStationRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ClimateNormalSourceFileRecord(SourceFileRecord):
+    release_key: str
+    normal_kind: str
+    station_file_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ClimateNormalSeriesRecord:
+    source_station_id: str
+    source_element_code: str
+    element_key: str
+    month: int
+    material_years: int
+    statistics_started_year: int | None
+    statistics_ended_year: int | None
+    daily_values: tuple[Decimal | None, ...]
+    daily_remarks: tuple[int, ...]

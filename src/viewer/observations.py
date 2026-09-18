@@ -5,6 +5,9 @@ from datetime import timedelta
 import streamlit as st
 
 from viewer.areas import select_observation_area
+from viewer.climate_normal_repository import (
+    fetch_climate_normals,
+)
 from viewer.observation_repository import (
     OBSERVATION_ROW_LIMIT,
     fetch_observation_catalog,
@@ -90,11 +93,15 @@ def render_observations() -> None:
         ),
     )
 
+    if station_key is None:
+        st.info("選択できる観測所がありません。")
+        return
+
     elements = catalog[
         catalog["station_key"] == station_key
     ].copy()
-    element_labels = {
-        row["element_key"]: (
+    element_labels: dict[str, str] = {
+        str(row["element_key"]): (
             f'{row["element_name"]}（{row["unit"]}）'
         )
         for _, row in elements.iterrows()
@@ -108,6 +115,10 @@ def render_observations() -> None:
             element_labels,
         ),
     )
+
+    if element_key is None:
+        st.info("選択できる観測項目がありません。")
+        return
 
     selected = elements[
         elements["element_key"] == element_key
@@ -134,11 +145,13 @@ def render_observations() -> None:
         max_value=last_date,
     )
 
-    selected_states = st.multiselect(
+    selected_states: list[str] = st.multiselect(
         "品質状態",
         options=list(VALUE_STATE_LABELS),
         default=list(VALUE_STATE_LABELS),
-        format_func=VALUE_STATE_LABELS.get,
+        format_func=lambda value: (
+            VALUE_STATE_LABELS[value]
+        ),
     )
 
     if start_date > end_date:
@@ -175,6 +188,13 @@ def render_observations() -> None:
     st.write(f"表示件数：{len(observations):,}件")
 
     if selected["value_kind"] == "numeric":
+        normals = fetch_climate_normals(
+            station_key=station_key,
+            element_key=element_key,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
         st.subheader("時系列グラフ")
         render_numeric_chart(
             observations,
@@ -182,6 +202,7 @@ def render_observations() -> None:
             end_date=end_date,
             element_name=str(selected["element_name"]),
             unit=str(selected["unit"]),
+            normals=normals,
         )
     else:
         st.info(

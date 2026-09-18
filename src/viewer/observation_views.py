@@ -37,7 +37,14 @@ def render_numeric_chart(
     end_date: date,
     element_name: str,
     unit: str,
+    normals: pd.DataFrame | None = None,
 ) -> None:
+    date_index = pd.date_range(
+        start_date,
+        end_date,
+        freq="D",
+    )
+
     chart = observations[
         ["observed_on", "numeric_value"]
     ].copy()
@@ -45,26 +52,58 @@ def render_numeric_chart(
         chart["observed_on"]
     )
     chart = chart.set_index("observed_on")
-    chart = chart.reindex(
-        pd.date_range(start_date, end_date, freq="D")
-    )
-
-    if chart["numeric_value"].notna().sum() == 0:
-        st.info("グラフへ表示できる数値がありません。")
-        return
-
+    chart = chart.reindex(date_index)
     chart = chart.rename(
         columns={
-            "numeric_value": f"{element_name}（{unit}）",
+            "numeric_value": (
+                f"{element_name}（{unit}）"
+            ),
         }
     )
 
+    actual_column = f"{element_name}（{unit}）"
+    normal_column = f"気象庁平年値（{unit}）"
+
+    if normals is not None and not normals.empty:
+        normal_chart = normals[
+            ["observed_on", "normal_value"]
+        ].copy()
+        normal_chart["observed_on"] = pd.to_datetime(
+            normal_chart["observed_on"]
+        )
+        normal_chart = normal_chart.set_index(
+            "observed_on"
+        )
+        normal_chart = normal_chart.reindex(date_index)
+        chart[normal_column] = normal_chart[
+            "normal_value"
+        ]
+
+    has_actual = chart[actual_column].notna().any()
+    has_normal = (
+        normal_column in chart
+        and chart[normal_column].notna().any()
+    )
+
+    if not has_actual and not has_normal:
+        st.info("グラフへ表示できる数値がありません。")
+        return
+
     st.line_chart(chart)
 
-    st.caption(
-        "欠測・未観測・未取得の日はゼロに変換せず、"
-        "グラフ上の空白として扱います。"
-    )
+    if has_normal:
+        st.caption(
+            "気象庁の1991～2020年平年値と比較しています。"
+            "欠測・未観測・平年値なしの日はゼロに"
+            "変換せず、グラフ上の空白として扱います。"
+        )
+    else:
+        st.caption(
+            "この観測所・項目には対応する気象庁平年値が"
+            "ありません。欠測・未観測・未取得の日は"
+            "ゼロに変換せず、グラフ上の空白として"
+            "扱います。"
+        )
 
 
 def render_observation_table(
