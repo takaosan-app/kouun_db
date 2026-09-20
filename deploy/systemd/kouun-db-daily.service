@@ -1,5 +1,5 @@
 [Unit]
-Description=kouun_db daily JMA observation collection
+Description=kouun_db daily JMA collection and analysis
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -14,6 +14,7 @@ Environment=COMPOSE_ANSI=never
 
 ExecStartPre=/usr/bin/docker compose -f compose.yml --profile jobs config --quiet
 ExecStart=/usr/bin/docker compose -f compose.yml --profile jobs run --rm collector python -m collector.batch_jma_daily --element-profile extended --output-dir /data/raw
+ExecStart=/usr/bin/docker compose -f compose.yml --profile jobs run --rm analyzer python -m analyzer.build_daily_layers --lookback-days 7
 
 TimeoutStartSec=2h
 Nice=10
