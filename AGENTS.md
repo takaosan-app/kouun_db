@@ -13,6 +13,7 @@
 | 栽培イベント・状態管理 | `docs/plans/04_cultivation_state.md` |
 | データ確認Viewer | `docs/plans/05_data_view.md` |
 | アプリ構築 | `docs/plans/06_application.md` |
+| L3のDB設計 | `docs/plans/07_database.md` |
 | 進捗・残課題 | `docs/STATUS_PLAN.md` |
 | 事業性・法規制・外部確認 | `docs/BUSINESS.md` |
 

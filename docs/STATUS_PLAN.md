@@ -174,10 +174,10 @@ DBのマスターとイベント履歴を中心に設計する。
 - 栽培イベント履歴
 - 実績イベントから導出した現在状態
 - 日誌、農家による降雨確認、病害虫確認、作業記録
-- 圃場ごとの降雨系列（観測所3地点と日誌を合成。連続日数を含む）
 - 推定状態と利用者確認済み状態の区別
 
-詳細な状態遷移は[plans/04_cultivation_state.md](plans/04_cultivation_state.md)に従う。
+詳細な状態遷移は[plans/04_cultivation_state.md](plans/04_cultivation_state.md)、
+テーブル構成は[plans/07_database.md](plans/07_database.md)に従う。
 
 ### 4.3 リスクルールをDB管理
 
