@@ -1,6 +1,6 @@
 # 開発計画書 01：全体編
 
-版：v0.7／更新日：2026-09-21
+版：v0.8／更新日：2026-09-21
 目的：大きな流れと機能を共有する。詳細設計は各編を正本とする。
 
 ## 1. 目指すもの
@@ -23,9 +23,10 @@
 自宅サーバー：PostgreSQL＋PostGIS ＋ 元ファイル保存（L0・L1・L2を全国・全期間）
          ↓ 配信範囲のみ同期
 アプリ向けDB：Supabase（利用者・圃場・栽培案件・イベント・L3結果）
-         ↓ API（GCPで実行。現在の案）
+         ↓ 直接接続（クライアントSDK）
 Flutter：PCブラウザ／Android／iPhone
 
+GCP：日次でSupabaseへ接続し、L3（risk_result）を計算（Cloud Run Jobs、現在の案）
 日誌画像：Cloudflareへ保存し、DBにはオブジェクトキーを持つ
 後から追加：農地ポリゴン、降水予報・ナウキャスト、現地センサー
 ```
@@ -41,9 +42,13 @@ Flutter：PCブラウザ／Android／iPhone
 
 ```text
 自宅サーバー   L0、取り込みETL、L1・L2生成
-Supabase       必要なL1・L2、利用者データ、圃場、栽培案件、イベント、ルール評価、L3の結果
-GCP            バックエンドAPIの実行（現在の案）
+Supabase       必要なL1・L2、利用者データ、圃場、栽培案件、イベント、L3の結果、
+               RLSによる権限制御、検証・多段書き込み用の関数、軽量な同期処理
+GCP            L3（risk_result）の日次計算（Cloud Run Jobs、現在の案）
 Cloudflare     日誌画像の保存
+
+常時稼働のバックエンドAPIは持たない。FlutterはSupabaseへ直接接続する。詳細は
+[06_application.md](06_application.md)2章・2.4を参照する。
 ```
 
 自宅サーバーが停止してもアプリは動作し、当日の結果が更新されないだけの状態にする。ETLは冪等とし、停止した日は翌日まとめて再実行できる形とする。
@@ -115,10 +120,10 @@ L0は配布形式を忠実に取り込み、後からL1以降を再生成でき�
 | 収集・分析 | Pythonを計画上採用。既存の不動産データシステムの経験を生かす |
 | 取得方法 | CSV等の配布データを優先。HTML解析は補完手段 |
 | DB | 自宅PostgreSQL＋PostGIS。アプリ向けDBはSupabaseを採用案とする |
-| API | Python＋FastAPIを計画上採用 |
-| 画面 | ユーザーの希望を踏まえてFlutterを計画上採用 |
+| API | 常時稼働の自前APIは持たない。検証・多段書き込みはSupabaseのPostgres関数、軽量な同期処理はEdge Function |
+| 画面 | ユーザーの希望を踏まえてFlutterを計画上採用。Supabaseへ直接接続 |
 | アプリ向け配信 | L1は直近18か月、L2は直近11年を同期。標準PostgreSQL中心に設計 |
-| 実行場所 | バックエンドAPIはGCPを現在の案とする。画像保存はCloudflare |
+| 実行場所 | L3日次バッチ（risk_result計算）はGCPのCloud Run Jobsを現在の案とする。既存のPython資産を再利用できる。画像保存はCloudflare |
 
 SupabaseのPostGIS対応、FlutterのWeb・モバイル対応は公式資料で確認できる。実際の移行条件や対応OSは実装時に再確認する。[Supabase](https://supabase.com/docs/guides/database/extensions/postgis)、[Flutter](https://docs.flutter.dev/platform-integration/web)
 
@@ -146,7 +151,6 @@ SupabaseのPostGIS対応、FlutterのWeb・モバイル対応は公式資料で�
 ## 10. 変更履歴
 
 | 日付 | 版 | 内容 |
-|---|---|---|
 | 2026-09-12 | v0.1 | 初版。観測所データ先行、３段階開発を設定 |
 | 2026-09-12 | v0.2 | サンプル農地を藤枝市稲川、観測所候補を静岡・静岡空港・島田・高根山に更新 |
 | 2026-09-12 | v0.3 | 前半・中盤を自宅サーバーのDocker Composeで構築する方針を反映 |
@@ -154,3 +158,4 @@ SupabaseのPostGIS対応、FlutterのWeb・モバイル対応は公式資料で�
 | 2026-09-14 | v0.5 | Pythonファイルは250行超で構成を見直し、行数より処理の一体性と読みやすさを優先する方針へ更新 |
 | 2026-09-21 | v0.6 | 文書再編。旧`ANALYZE.md`の四層構造・計算方式・配置方針を取り込み、全体構成図をSupabase・GCP・Cloudflare構成へ更新 |
 | 2026-09-21 | v0.7 | アプリ向け配信の保持期間をL1は直近18か月、L2は直近11年へ変更 |
+| 2026-09-21 | v0.8 | 常時稼働の自前APIを廃止しSupabase直接接続へ変更。L3日次バッチの実行場所をGCP Cloud Run Jobsと明記 |

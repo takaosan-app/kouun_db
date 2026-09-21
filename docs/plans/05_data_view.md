@@ -1,6 +1,6 @@
 # 開発計画書 05：データ確認Viewer編
 
-版：v0.6／更新日：2026-09-21
+版：v0.7／更新日：2026-09-21
 
 到達目標：収集した観測所・観測値・品質・取込状況を、開発者がブラウザから安全に確認できるようにする。
 
@@ -18,12 +18,14 @@ Streamlit Viewer
 開発者がブラウザで確認
 
 将来：
-PostgreSQL＋PostGIS
-        ↓
-FastAPI
-        ↓
+自宅PostgreSQL＋PostGIS
+        ↓ 配信範囲のみ同期
+Supabase（アプリ向けDB）
+        ↓ 直接接続
 Flutter Web／Android／iPhone
 ```
+
+将来の構成は[06_application.md](06_application.md)2章を正本とする。
 
 全国データの収集完了を待たず、静岡県の少数地点と既存データでViewerを構築する。
 
@@ -323,3 +325,4 @@ Webhook URLは環境変数または秘密情報管理へ保存し、コード・
 | 2026-09-15 | v0.2 | Viewer専用の読み取り専用DBロールを使用する方針へ変更 |
 | 2026-09-15 | v0.3 | V0完了。Viewer専用ロール、localhost公開、Tailscale ServeによるMacからの接続を反映 |
 | 2026-09-21 | v0.6 | 文書再編に伴い`docs/plans/`へ移動。内容の変更なし |
+| 2026-09-21 | v0.7 | 将来構成図をFastAPI経由からSupabase直接接続へ更新 |
