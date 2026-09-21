@@ -1,6 +1,6 @@
 # 開発計画書 07：DB設計編
 
-版：v0.7／更新日：2026-09-21  
+版：v0.8／更新日：2026-09-21  
 状態：概念設計（テーブルと関係のみ。列・型・制約は未確定）  
 到達目標：気象データと利用者データを分けたまま、栽培状態からリスク判定までを再現可能に表現する。
 
@@ -59,7 +59,8 @@
         │   └─ cultivation_event_revision   訂正・取消の履歴
         ├─ cultivation_record             記録（病害確認・害虫確認・作業記録）
         │      状態に影響しない。衝突確認の対象外。複数回登録できる
-        ├─ cultivation_state       導出した状態・開始日・現在の圃場（ビュー。テーブルとして持たない）
+        ├─ cultivation_state       生育段階・所在・処理状態・案件状態（4軸）。cultivation_eventの
+        │                          変更をトリガーで反映するキャッシュ・テーブル（正本ではない）
         └─ cultivation_estimate    推定結果
 
 ━━━ 判定 ━━━
@@ -80,7 +81,7 @@
 場所を持つ。ほとんどのイベント（開花開始、収穫開始等）は場所を変えないため`field_id`は
 NULLのままとし、育苗開始・定植・移植・直播など、場所が変わる瞬間のイベントだけに設定する。
 
-「現在どの圃場にいるか」は、`cultivation_state`と同じ考え方で導出する。04編2.3の状態軸
+「現在どの圃場にいるか」は、`cultivation_state`の所在・栽培場所と同じ考え方で導出する。04編2.3の状態軸
 「所在・栽培場所」に対応する。
 
 ```sql
@@ -192,7 +193,7 @@ ORDER BY cultivation_id, occurred_on DESC, created_at DESC
 抜き出さない。日誌のデータとして一体で扱う。
 
 `cultivation`は栽培案件。同じ圃場でも年または作期が異なれば別の案件とする（04編2.1）。
-案件状態（進行中／終了／中止）は列として持たず、`cultivation_state`ビューが導出する。
+案件状態（進行中／終了／中止）は列として持たず、`cultivation_state`が導出する。
 栽培終了は`harvest_ended`イベントから自動的に導出し、栽培中止は明示的なイベントとして
 登録された場合のみ反映する（04編4章）。
 
@@ -212,12 +213,20 @@ ORDER BY cultivation_id, occurred_on DESC, created_at DESC
 `cultivation_event_revision`は訂正・取消の履歴。誤登録は物理削除せず取消状態とし、
 状態計算から除外する（04編8章）。
 
-`cultivation_state`は導出した状態・開始日・現在の圃場を、ビューとして表す。テーブルとして
-持たない。イベント数は栽培案件あたり数十件程度で計算コストの問題がなく、`cultivation_event`
-から再生成できるものを別テーブルとして固定する理由がない。
+`cultivation_state`は04編2.3の4状態軸（生育段階、所在・栽培場所、処理状態、案件状態）を
+1行1栽培案件で持つ。テーブルとして持ち、正本ではなくキャッシュとして扱う（04編12章）。
+`cultivation_event`への書き込み（登録・訂正・取消）のたびに、トリガーが対象の栽培案件分を
+再計算してUPSERTする。イベント数が栽培案件あたり数十件程度のため再計算コストは問題にならない。
+
+テーブルにした理由は、ビューだと`security_invoker`を明示しない限りRLSを素通りする恐れが
+あり、4軸をまとめて返す複雑なクエリではその設定漏れの事故が起きやすいためである。テーブル
+であれば、自動RLS（2.5相当の設定）がそのまま効く。将来Supabase Realtimeで状態変化を
+プッシュ通知する場合も、ビューの変更はうまく拾えないためテーブルの方が扱いやすい。
+
+再計算の元になる導出クエリは次のとおり。
 
 ```sql
--- 現在の生育段階・状態開始日
+-- 生育段階・状態開始日
 SELECT DISTINCT ON (cultivation_id)
   cultivation_id, event_type_id, occurred_on AS state_started_on
 FROM cultivation_event
@@ -225,7 +234,7 @@ WHERE NOT is_cancelled
   AND occurred_on <= CURRENT_DATE        -- 未来日のイベントは状態に反映しない
 ORDER BY cultivation_id, occurred_on DESC, created_at DESC   -- 同着はcreated_atで決定
 
--- 現在の圃場（2.2）。field_idを持つイベントに限定して同じ形で導出し、上と結合する
+-- 所在・栽培場所（現在の圃場、2.2）。field_idを持つイベントに限定して同じ形で導出する
 SELECT DISTINCT ON (cultivation_id)
   cultivation_id, field_id AS current_field_id, occurred_on AS field_since
 FROM cultivation_event
@@ -233,16 +242,21 @@ WHERE NOT is_cancelled
   AND occurred_on <= CURRENT_DATE
   AND field_id IS NOT NULL
 ORDER BY cultivation_id, occurred_on DESC, created_at DESC
+
+-- 処理状態（冷蔵処理中等）。冷蔵開始・終了イベントの有無から導出する
+-- 案件状態（進行中／終了／中止）。harvest_endedと栽培中止イベントの有無から導出する
 ```
 
+処理状態・案件状態の具体的な導出条件は`crop_stage_rule`の設計時に確定する。
+
 同じ栽培案件・同じ日付に複数のイベントが生じるのは主に後日まとめて入力する場合である。
-これは入力時の確認画面（04編7.2）で修正または破棄されるため、この一覧に矛盾したデータが
-残ることは通常ない。開発側が優先順位を管理するマスタは持たない。
+これは入力時の確認画面（04編7.2）で修正・破棄・両方登録のいずれかを選ぶことで解決し、
+この一覧に矛盾したデータが残ることは通常ない。開発側が優先順位を管理するマスタは持たない。
 
 `cultivation_record`は病害確認・害虫確認・作業記録を持つ。状態を動かさず、`cultivation_state`
 の計算にも使わない、単なるログである。`cultivation_event`と異なり同一日付の衝突確認を
-行わず、何度でも登録できる。将来、記録をキーにした予定・通知（防除カレンダー等）を作る
-機能は本編の対象外とする（04編4章）。
+行わず、何度でも登録できる。トリガーによる再計算の対象にもならない。将来、記録をキーに
+した予定・通知（防除カレンダー等）を作る機能は本編の対象外とする（04編4章）。
 
 `cultivation_estimate`は推定結果。実績と分けて保持し、利用者が確認した時点で
 `cultivation_event`の実績行になる（04編9章）。
@@ -296,7 +310,7 @@ GCPからSupabaseへライブ接続して計算する。自宅サーバーの稼
 | 利用者 | `app_user` | 登録時 |
 | 圃場 | `field`、`field_weather_station`、`diary_entry` | 圃場登録時、日誌入力時 |
 | 栽培案件 | `cultivation`、`cultivation_event`、`cultivation_event_revision`、`cultivation_record`、`cultivation_estimate` | イベント・記録の入力・訂正時 |
-| 栽培案件（ビュー） | `cultivation_state` | `cultivation_event`の変更に追従（テーブルではないため同期不要） |
+| 栽培案件（キャッシュ） | `cultivation_state` | `cultivation_event`への書き込み時にトリガーで再計算 |
 | 判定 | `risk_result` | 日次、イベント訂正時 |
 
 イベントの訂正または取消が発生した最古の日を`recalc_from`とし、その日以降の状態と
@@ -309,7 +323,7 @@ GCPからSupabaseへライブ接続して計算する。自宅サーバーの稼
 | 論点 | 結論 |
 |---|---|
 | イベント訂正履歴 | `cultivation_event_revision`として別テーブルに持つ（3.3） |
-| `cultivation_state`の実体 | テーブルではなくビュー。`occurred_on <= 今日`で絞り最新を採用（3.3） |
+| `cultivation_state`の実体 | テーブル（キャッシュ）。トリガーで再計算し、`occurred_on <= 今日`で絞り最新を採用（3.3） |
 | `cultivar`の追加 | 開発側管理の一覧から選択。利用者は追加しない（3.2） |
 | イベント固有の詳細 | JSONは持たず共通列＋自由記述のメモのみ（3.3） |
 | 行レベル権限 | `user_id = auth.uid()`の単純な等号比較（3.5） |
@@ -373,3 +387,4 @@ personal_risk_rule（仮）  利用者が自分の経験則を登録する。既
 | 2026-09-21 | v0.5 | `field`と`cultivation`を対等な実体へ変更し、`cultivation_event`にNULL許容の`field_id`を追加。苗場と本圃が離れた場所にあり栽培途中で場所が変わるケースに対応した。2.2を新設し、`cultivation_state`ビューに現在の圃場の導出を統合した |
 | 2026-09-21 | v0.6 | `cultivation`から案件状態の列を外し、`cultivation_state`ビューで導出する方針を明記。06編4.1の番号変更に伴い相互参照を修正 |
 | 2026-09-21 | v0.7 | `cultivation_event`から病害確認・害虫確認・作業記録を分離し、`cultivation_record`を新設。イベント（状態遷移・衝突確認あり）と記録（状態に影響せず衝突確認なし、複数回登録可）を別テーブルとした。テーブル数を20（判定含め22）へ更新 |
+| 2026-09-21 | v0.8 | `cultivation_state`をビューからテーブルへ変更し、04編2.3の4状態軸（生育段階・所在・処理状態・案件状態）をすべて持たせる方針とした。理由はビューだと`security_invoker`未設定でRLSを素通りする恐れがあるため。`cultivation_event`書き込み時のトリガーで再計算するキャッシュとして位置づけた |
