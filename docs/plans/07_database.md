@@ -1,6 +1,6 @@
 # 開発計画書 07：DB設計編
 
-版：v0.8／更新日：2026-09-21  
+版：v0.9／更新日：2026-09-21  
 状態：概念設計（テーブルと関係のみ。列・型・制約は未確定）  
 到達目標：気象データと利用者データを分けたまま、栽培状態からリスク判定までを再現可能に表現する。
 
@@ -218,6 +218,27 @@ ORDER BY cultivation_id, occurred_on DESC, created_at DESC
 `cultivation_event`への書き込み（登録・訂正・取消）のたびに、トリガーが対象の栽培案件分を
 再計算してUPSERTする。イベント数が栽培案件あたり数十件程度のため再計算コストは問題にならない。
 
+| 列 | 型 | NULL | 内容 |
+|---|---|---|---|
+| `cultivation_id` | uuid | NOT NULL, PK | `cultivation`と1対1 |
+| `user_id` | uuid | NOT NULL | RLS判定列 |
+| `growth_stage_event_type_id` | 参照 | NULL可 | 生育段階の根拠となった直近イベント種別 |
+| `growth_stage_started_on` | date | NULL可 | 生育段階の開始日。リスク判定の基準日になる |
+| `field_id` | uuid | NULL可 | 所在（現在の圃場） |
+| `field_since` | date | NULL可 | その圃場に移った日 |
+| `treatment_status` | text | NULL可 | 処理状態（例：冷蔵処理中）。NULLは通常管理 |
+| `treatment_status_since` | date | NULL可 | 処理状態が始まった日 |
+| `cultivation_status` | text | NOT NULL, DEFAULT '進行中' | 案件状態（進行中／終了／中止） |
+| `updated_at` | timestamptz | NOT NULL, DEFAULT now() | トリガーによる最終更新日時 |
+
+`treatment_status`は今のところ冷蔵処理の1種類しかなく、複数の処理が同時に重なる想定も
+ない。JSONではなくテキスト1列＋開始日で持つ。`field_weather_station`が「圃場ごとに
+参照観測所が複数ありうる」ことをテーブルで表現しているのと同様、処理状態が2種類以上
+同時に重なる必要が実際に生じた場合は、`cultivation_treatment`（cultivation_id、
+treatment_type、started_on、ended_on）のような別テーブルへ切り出す。「計算に使わない
+情報はメモへ」という原則（3章）どおり、今は使い道が未確定な温度・方式等の詳細も構造化
+せず、該当イベントのメモに記録する。
+
 テーブルにした理由は、ビューだと`security_invoker`を明示しない限りRLSを素通りする恐れが
 あり、4軸をまとめて返す複雑なクエリではその設定漏れの事故が起きやすいためである。テーブル
 であれば、自動RLS（2.5相当の設定）がそのまま効く。将来Supabase Realtimeで状態変化を
@@ -243,7 +264,9 @@ WHERE NOT is_cancelled
   AND field_id IS NOT NULL
 ORDER BY cultivation_id, occurred_on DESC, created_at DESC
 
--- 処理状態（冷蔵処理中等）。冷蔵開始・終了イベントの有無から導出する
+-- 処理状態。直近の冷蔵開始イベントより後に冷蔵終了イベントがなければ「冷蔵処理中」、
+-- あれば通常管理（NULL）とする。詳細な実装はトリガー関数の設計時に詰める
+
 -- 案件状態（進行中／終了／中止）。harvest_endedと栽培中止イベントの有無から導出する
 ```
 
@@ -388,3 +411,4 @@ personal_risk_rule（仮）  利用者が自分の経験則を登録する。既
 | 2026-09-21 | v0.6 | `cultivation`から案件状態の列を外し、`cultivation_state`ビューで導出する方針を明記。06編4.1の番号変更に伴い相互参照を修正 |
 | 2026-09-21 | v0.7 | `cultivation_event`から病害確認・害虫確認・作業記録を分離し、`cultivation_record`を新設。イベント（状態遷移・衝突確認あり）と記録（状態に影響せず衝突確認なし、複数回登録可）を別テーブルとした。テーブル数を20（判定含め22）へ更新 |
 | 2026-09-21 | v0.8 | `cultivation_state`をビューからテーブルへ変更し、04編2.3の4状態軸（生育段階・所在・処理状態・案件状態）をすべて持たせる方針とした。理由はビューだと`security_invoker`未設定でRLSを素通りする恐れがあるため。`cultivation_event`書き込み時のトリガーで再計算するキャッシュとして位置づけた |
+| 2026-09-21 | v0.9 | `cultivation_state`の列一覧を確定。`treatment_status`はJSONではなくテキスト＋開始日の2列とし、複数の処理状態が重なる必要が生じた場合は`field_weather_station`と同じ「別テーブルで1対多を表現する」方針へ切り出すと明記した |
