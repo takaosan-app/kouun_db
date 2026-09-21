@@ -1,6 +1,6 @@
 # 開発計画書 07：DB設計編
 
-版：v0.4／更新日：2026-09-21  
+版：v0.5／更新日：2026-09-21  
 状態：概念設計（テーブルと関係のみ。列・型・制約は未確定）  
 到達目標：気象データと利用者データを分けたまま、栽培状態からリスク判定までを再現可能に表現する。
 
@@ -16,10 +16,11 @@
 |---|---|---|
 | 管理単位 | 利用者 → 圃場 → 栽培案件 → イベント。農場の階層は設けない | 04編2.1 |
 | 圃場の粒度 | 作物ごとに別の圃場として登録する | 04編2.1 |
-| 主キー | 利用者データはUUID。端末側で採番する | 本編2.2 |
-| 所有の判定 | 各テーブルに利用者を非正規化して持つ | 本編2.3 |
+| 圃場と栽培案件の関係 | 対等な実体。固定の親子関係を持たず、イベントが場所を参照する | 本編2.2 |
+| 主キー | 利用者データはUUID。端末側で採番する | 本編2.4 |
+| 所有の判定 | 各テーブルに利用者を非正規化して持つ | 本編2.4 |
 | 正本の所在 | 利用者データはアプリ向けDB。気象データは自宅サーバー | 01編2章 |
-| 開発の場所 | 自宅PostgreSQLの`app`スキーマで設計し、同じDDLをアプリ向けDBへ適用する | 本編2.4 |
+| 開発の場所 | 自宅PostgreSQLの`app`スキーマで設計し、同じDDLをアプリ向けDBへ適用する | 本編2.5 |
 | イベントの扱い | 現在状態を上書きせず、イベントから導出する | 04編2.2 |
 | 削除 | 物理削除せず取消状態として扱う | 04編8章 |
 
@@ -47,15 +48,16 @@
 ━━━ 利用者データ ━━━
 
   app_user
-   └─ field                            圃場・ハウス
-       ├─ field_weather_station  →  weather_station
-       │      要素 × 観測所 × 役割（主／比較）× 順位
-       ├─ diary_entry                  日誌（天気チェック・自由記述・降雨記録）
-       └─ cultivation                  栽培案件（作期×品目×品種×栽培方法）
-            ├─ cultivation_event       栽培イベント（実績）
-            │   └─ cultivation_event_revision   訂正・取消の履歴
-            ├─ cultivation_state       導出した状態と開始日（ビュー。テーブルとして持たない）
-            └─ cultivation_estimate    推定結果
+   ├─ field                            圃場・ハウス（複数登録可）
+   │   ├─ field_weather_station  →  weather_station
+   │   │      要素 × 観測所 × 役割（主／比較）× 順位
+   │   └─ diary_entry                  日誌（天気チェック・自由記述・降雨記録）
+   │
+   └─ cultivation                      栽培案件（作期×品目×品種×栽培方法）
+        ├─ cultivation_event      →  field（NULL許容。場所が変わるイベントのみ設定）
+        │   └─ cultivation_event_revision   訂正・取消の履歴
+        ├─ cultivation_state       導出した状態・開始日・現在の圃場（ビュー。テーブルとして持たない）
+        └─ cultivation_estimate    推定結果
 
 ━━━ 判定 ━━━
 
@@ -65,7 +67,41 @@
 
 第1段階は判定の2テーブルを除く19テーブル、判定を含めて21テーブルとなる。
 
-### 2.2 圃場は気象値を持たない
+### 2.2 圃場は栽培案件の固定の親ではない
+
+苗場と本圃が離れた場所にあることがあり、栽培の途中で場所が変わる（04編5.2の「本圃へ定植」、
+6.2の「移植」「直播」は、いずれもイベントの入力として圃場を要求している）。栽培案件に
+固定の`field_id`を持たせると、この移動を表現できない。
+
+そのため`field`と`cultivation`は利用者に直接ぶら下がる対等な実体とし、`cultivation_event`が
+場所を持つ。ほとんどのイベント（開花開始、収穫開始等）は場所を変えないため`field_id`は
+NULLのままとし、育苗開始・定植・移植・直播など、場所が変わる瞬間のイベントだけに設定する。
+
+「現在どの圃場にいるか」は、`cultivation_state`と同じ考え方で導出する。04編2.3の状態軸
+「所在・栽培場所」に対応する。
+
+```sql
+SELECT DISTINCT ON (cultivation_id)
+  cultivation_id, field_id AS current_field_id, occurred_on AS field_since
+FROM cultivation_event
+WHERE NOT is_cancelled
+  AND occurred_on <= CURRENT_DATE
+  AND field_id IS NOT NULL
+ORDER BY cultivation_id, occurred_on DESC, created_at DESC
+```
+
+この結果、`risk_result`の計算時は判定対象の日にどの圃場にいたかを確認し、その時点の
+`field_weather_station`が指す観測所を使う。栽培案件に固定の参照観測所を持たせる設計では、
+この移動を表現できないところだった。
+
+冷蔵処理中は登録された圃場ではなく冷蔵設備という別カテゴリの所在（04編2.3）となるため、
+冷蔵処理の開始・終了イベントには`field_id`を設定しない。直前の圃場がそのまま「現在の圃場」
+として扱われ続ける。
+
+栽培開始時に圃場と品目のどちらを先に入力させるか、節目イベントでその場に圃場を新規登録
+させるかは、UI設計の論点であり本編のスキーマには影響しない。06編13章で保留事項として扱う。
+
+### 2.3 圃場は気象値を持たない
 
 雨・気温・日照はリスク要因の時系列であり、圃場や栽培案件の属性ではない。圃場が持つのは
 「どの系列を見るか」の指定（`field_weather_station`）だけで、系列そのものは持たない。
@@ -83,7 +119,7 @@
 使った各観測所の値と採用した根拠は`risk_result`に残すため、後から判定を検証できる。
 参照観測所を変更しても過去の判定結果を作り直す必要がない。
 
-### 2.3 主キーと所有
+### 2.4 主キーと所有
 
 利用者データの主キーはUUIDとし、端末側で採番する。理由は次のとおり。
 
@@ -96,7 +132,7 @@
 所有の判定は、各テーブルに利用者を非正規化して持つ方式とする。親テーブルを遡らずに
 1列で判定でき、アプリ向けDBの行レベル権限と相性がよい。
 
-### 2.4 開発と本番の場所
+### 2.5 開発と本番の場所
 
 | | 場所 |
 |---|---|
@@ -161,23 +197,36 @@
 規則がないためで、将来特定の値を判定に使う必要が生じた時点で専用の列を追加する。
 複数日にわたる状態（冷蔵処理中の温度経過など）は単発のイベントではなく日誌で追う。
 
+`field_id`（NULL許容）を持ち、場所が変わるイベント（育苗開始、定植、移植、直播）だけに
+値を設定する（2.2）。
+
 発生日は常に表示・編集可能とし、過去日・未来日のいずれも登録できる。未来日のイベントは
 保存されるが、現在状態の判定には含めない（7.2、下記）。
 
 `cultivation_event_revision`は訂正・取消の履歴。誤登録は物理削除せず取消状態とし、
 状態計算から除外する（04編8章）。
 
-`cultivation_state`は導出した状態と開始日を、ビューとして表す。テーブルとして持たない。
-イベント数は栽培案件あたり数十件程度で計算コストの問題がなく、`cultivation_event`から
-再生成できるものを別テーブルとして固定する理由がない。
+`cultivation_state`は導出した状態・開始日・現在の圃場を、ビューとして表す。テーブルとして
+持たない。イベント数は栽培案件あたり数十件程度で計算コストの問題がなく、`cultivation_event`
+から再生成できるものを別テーブルとして固定する理由がない。
 
 ```sql
+-- 現在の生育段階・状態開始日
 SELECT DISTINCT ON (cultivation_id)
   cultivation_id, event_type_id, occurred_on AS state_started_on
 FROM cultivation_event
 WHERE NOT is_cancelled
   AND occurred_on <= CURRENT_DATE        -- 未来日のイベントは状態に反映しない
 ORDER BY cultivation_id, occurred_on DESC, created_at DESC   -- 同着はcreated_atで決定
+
+-- 現在の圃場（2.2）。field_idを持つイベントに限定して同じ形で導出し、上と結合する
+SELECT DISTINCT ON (cultivation_id)
+  cultivation_id, field_id AS current_field_id, occurred_on AS field_since
+FROM cultivation_event
+WHERE NOT is_cancelled
+  AND occurred_on <= CURRENT_DATE
+  AND field_id IS NOT NULL
+ORDER BY cultivation_id, occurred_on DESC, created_at DESC
 ```
 
 同じ栽培案件・同じ日付に複数のイベントが生じるのは主に後日まとめて入力する場合である。
@@ -310,3 +359,4 @@ personal_risk_rule（仮）  利用者が自分の経験則を登録する。既
 | 2026-09-21 | v0.2 | `cultivation_event_type`を開発側管理の版付きマスタとし利用者は追加できない旨を明記。個人用の病害虫観察ルールを将来の拡張構想として6.1へ追加 |
 | 2026-09-21 | v0.3 | 5章の6論点をすべて確定。`cultivation_state`をテーブルからビューへ変更し導出クエリを明記、`cultivar`を開発側管理の一覧選択に、イベント詳細をJSON不要・メモのみに、RLSを`user_id = auth.uid()`に、オフラインは新規列不要と結論。同一日付のイベント衝突は種類を問わず確認画面で解決する方針とした（04編7.2と連動） |
 | 2026-09-21 | v0.4 | 常時稼働の自前APIを廃止。3.6を追加し、検証・多段書き込みはPostgres関数、軽量な同期処理はEdge Function、L3日次バッチはGCP Cloud Run Jobsへ役割を整理した |
+| 2026-09-21 | v0.5 | `field`と`cultivation`を対等な実体へ変更し、`cultivation_event`にNULL許容の`field_id`を追加。苗場と本圃が離れた場所にあり栽培途中で場所が変わるケースに対応した。2.2を新設し、`cultivation_state`ビューに現在の圃場の導出を統合した |
