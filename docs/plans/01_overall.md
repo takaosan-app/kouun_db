@@ -1,6 +1,6 @@
 # 開発計画書 01：全体編
 
-版：v0.6／更新日：2026-09-21
+版：v0.7／更新日：2026-09-21
 目的：大きな流れと機能を共有する。詳細設計は各編を正本とする。
 
 ## 1. 目指すもの
@@ -117,7 +117,7 @@ L0は配布形式を忠実に取り込み、後からL1以降を再生成でき�
 | DB | 自宅PostgreSQL＋PostGIS。アプリ向けDBはSupabaseを採用案とする |
 | API | Python＋FastAPIを計画上採用 |
 | 画面 | ユーザーの希望を踏まえてFlutterを計画上採用 |
-| アプリ向け配信 | 直近18か月のL1・L2を同期。標準PostgreSQL中心に設計 |
+| アプリ向け配信 | L1は直近18か月、L2は直近11年を同期。標準PostgreSQL中心に設計 |
 | 実行場所 | バックエンドAPIはGCPを現在の案とする。画像保存はCloudflare |
 
 SupabaseのPostGIS対応、FlutterのWeb・モバイル対応は公式資料で確認できる。実際の移行条件や対応OSは実装時に再確認する。[Supabase](https://supabase.com/docs/guides/database/extensions/postgis)、[Flutter](https://docs.flutter.dev/platform-integration/web)
@@ -153,3 +153,4 @@ SupabaseのPostGIS対応、FlutterのWeb・モバイル対応は公式資料で�
 | 2026-09-14 | v0.4 | Pythonファイルを役割ごとに分割し、150～200行程度を目安とする方針を追加 |
 | 2026-09-14 | v0.5 | Pythonファイルは250行超で構成を見直し、行数より処理の一体性と読みやすさを優先する方針へ更新 |
 | 2026-09-21 | v0.6 | 文書再編。旧`ANALYZE.md`の四層構造・計算方式・配置方針を取り込み、全体構成図をSupabase・GCP・Cloudflare構成へ更新 |
+| 2026-09-21 | v0.7 | アプリ向け配信の保持期間をL1は直近18か月、L2は直近11年へ変更 |
