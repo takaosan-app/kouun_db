@@ -31,11 +31,27 @@ def record_jma_parse_issues(
     recorded = 0
 
     for issue in parsed.issues:
-        action = (
-            "stored_as_missing"
-            if issue.raw_value
-            else "stored_as_not_observed"
-        )
+        if (
+            issue.issue_code
+            == "empty_value_for_observed_state"
+        ):
+            observation_stored = any(
+                record.observed_on == issue.observed_on
+                and record.element_key == issue.element_key
+                for record in parsed.observations
+            )
+            action = (
+                "stored_as_missing"
+                if observation_stored
+                else "observation_skipped"
+            )
+        else:
+            action = (
+                "stored_as_missing"
+                if issue.raw_value
+                else "stored_as_not_observed"
+            )
+
         issue_id = record_collection_issue(
             connection,
             CollectionIssue(
@@ -98,6 +114,7 @@ def record_empty_station_issue(
     connection: psycopg.Connection,
     *,
     station: AreaObservationStation,
+    station_id: int,
     area_code: str,
     capability_code: str,
     requested_start_date: date,
@@ -123,6 +140,7 @@ def record_empty_station_issue(
                 requested_start_date
             ),
             requested_end_date=requested_end_date,
+            station_id=station_id,
             source_file_id=source_file_id,
             ingestion_run_id=ingestion_run_id,
             details={

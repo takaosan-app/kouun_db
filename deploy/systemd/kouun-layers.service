@@ -1,0 +1,22 @@
+[Unit]
+Description=kouun_db daily L1 and L2 build
+Requires=docker.service
+After=docker.service
+OnSuccess=kouun-notify@layers.service
+OnFailure=kouun-notify@layers.service
+
+[Service]
+Type=oneshot
+User=masuday
+Group=masuday
+SupplementaryGroups=docker
+WorkingDirectory=/opt/docker/kouun_db
+Environment=COMPOSE_ANSI=never
+
+ExecStartPre=-/usr/bin/python3 /opt/docker/kouun_db/deploy/notify/kouun_notify.py started layers
+ExecStart=/usr/bin/docker compose -f compose.yml --profile jobs run --rm analyzer python -m analyzer.build_daily_layers --lookback-days 7
+
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

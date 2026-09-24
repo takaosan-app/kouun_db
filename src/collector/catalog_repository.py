@@ -108,3 +108,25 @@ def resolve_catalog_ids(
         station_name=str(station_name),
         element_ids=element_ids,
     )
+
+
+def resolve_station_id(
+    connection: psycopg.Connection,
+    *,
+    station_key: str,
+) -> int:
+    row = connection.execute(
+        """
+        SELECT id
+        FROM weather.station
+        WHERE station_key = %s
+        """,
+        (station_key,),
+    ).fetchone()
+
+    if row is None:
+        raise CatalogNotFoundError(
+            f"Station was not found: {station_key}"
+        )
+
+    return int(row[0])

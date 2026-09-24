@@ -110,7 +110,8 @@ def parse_jma_csv(content: bytes) -> ParsedJmaCsv:
                 quality_index=column.quality_index,
                 homogeneity_index=column.homogeneity_index,
             )
-            observations.append(observation)
+            if observation is not None:
+                observations.append(observation)
 
             if issue is not None:
                 issues.append(issue)
@@ -124,7 +125,11 @@ def parse_jma_csv(content: bytes) -> ParsedJmaCsv:
     issues = [
         issue
         for issue in issues
-        if issue.element_key in available_element_keys
+        if (
+            issue.element_key in available_element_keys
+            or issue.issue_code
+            == "empty_value_for_observed_state"
+        )
     ]
 
     observations = _remove_elements_without_values(
@@ -217,12 +222,15 @@ def _parse_observation(
     quality_index: int,
     homogeneity_index: int,
 ) -> tuple[
-    ObservationRecord,
+    ObservationRecord | None,
     ObservationParseIssue | None,
 ]:
     raw_value = row[value_index].strip()
     quality_code = row[quality_index].strip()
     issue: ObservationParseIssue | None = None
+
+    if raw_value == "" and quality_code == "":
+        return None, None
 
     if not quality_code:
         raise JmaCsvError(
@@ -242,6 +250,30 @@ def _parse_observation(
             f"element {element_key}."
         ) from error
 
+    if (
+        not raw_value
+        and value_state in (
+            "observed",
+            "questionable",
+        )
+        and value_kind != "text"
+    ):
+        original_value_state = value_state
+        issue = ObservationParseIssue(
+            issue_code=(
+                "empty_value_for_observed_state"
+            ),
+            observed_on=observed_on,
+            element_key=element_key,
+            raw_value=raw_value,
+            message=(
+                f"Value is empty for state "
+                f"{original_value_state} at row "
+                f"{row_number}, element {element_key}."
+            ),
+        )
+        value_state = "missing"
+
     value, text_value = _parse_value(
         raw_value,
         value_kind,
@@ -250,12 +282,16 @@ def _parse_observation(
         element_key,
     )
 
-    no_phenomenon = _parse_no_phenomenon(
-        row=row,
-        column_index=phenomenon_index,
-        value_state=value_state,
-        row_number=row_number,
-        element_key=element_key,
+    no_phenomenon = (
+        None
+        if issue is not None
+        else _parse_no_phenomenon(
+            row=row,
+            column_index=phenomenon_index,
+            value_state=value_state,
+            row_number=row_number,
+            element_key=element_key,
+        )
     )
 
     homogeneity_number = (

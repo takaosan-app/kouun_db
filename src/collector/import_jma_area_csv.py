@@ -5,6 +5,10 @@ from pathlib import Path
 
 from collector.catalog_repository import (
     resolve_catalog_ids,
+    resolve_station_id,
+)
+from collector.collection_issue_repository import (
+    resolve_collection_issues,
 )
 from collector.database import connect_database
 from collector.jma_area_metadata import (
@@ -96,9 +100,25 @@ def import_jma_area_csv(
                 strict=True,
             ):
                 if not parsed.observations:
+                    station_id = resolve_station_id(
+                        connection,
+                        station_key=station.station_key,
+                    )
+
+                    resolve_collection_issues(
+                        connection,
+                        issue_code="collection_station_failed",
+                        area_code=source_file.area_code,
+                        capability_code=source_file.capability_code,
+                        requested_start_date=start_date,
+                        requested_end_date=end_date,
+                        station_id=station_id,
+                    )
+
                     record_empty_station_issue(
                         connection,
                         station=station,
+                        station_id=station_id,
                         area_code=(
                             source_file.area_code
                         ),
@@ -125,11 +145,34 @@ def import_jma_area_csv(
                 element_keys = {
                     record.element_key
                     for record in parsed.observations
+                } | {
+                    issue.element_key
+                    for issue in parsed.issues
                 }
                 catalog = resolve_catalog_ids(
                     connection,
                     station_source_file,
                     element_keys,
+                )
+
+                resolve_collection_issues(
+                    connection,
+                    issue_code="collection_station_failed",
+                    area_code=source_file.area_code,
+                    capability_code=source_file.capability_code,
+                    requested_start_date=start_date,
+                    requested_end_date=end_date,
+                    station_id=catalog.station_id,
+                )
+
+                resolve_collection_issues(
+                    connection,
+                    issue_code="no_available_observations",
+                    area_code=source_file.area_code,
+                    capability_code=source_file.capability_code,
+                    requested_start_date=start_date,
+                    requested_end_date=end_date,
+                    station_id=catalog.station_id,
                 )
 
                 record_jma_parse_issues(
@@ -155,6 +198,16 @@ def import_jma_area_csv(
                 inserted += counts.inserted
                 updated += counts.updated
                 unchanged += counts.unchanged
+
+            resolve_collection_issues(
+                connection,
+                issue_code="collection_job_failed",
+                area_code=source_file.area_code,
+                capability_code=source_file.capability_code,
+                requested_start_date=start_date,
+                requested_end_date=end_date,
+                station_id=None,
+            )
 
             totals = UpsertCounts(
                 parsed=source_file.observation_count,

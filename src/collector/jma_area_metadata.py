@@ -118,9 +118,9 @@ def load_jma_area_source_file(
         "observation_count",
     )
 
-    if observation_count <= 0:
+    if observation_count < 0:
         raise SourceMetadataError(
-            "Observation count must be positive."
+            "Observation count must not be negative."
         )
 
     request_parameters = require_dict(

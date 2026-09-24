@@ -5,7 +5,8 @@ Description=Run kouun_db daily JMA collection at 09:00 JST
 OnCalendar=*-*-* 09:00:00 Asia/Tokyo
 RandomizedDelaySec=10m
 AccuracySec=1m
-Unit=kouun-db-daily.service
+Unit=kouun-collector.service
+
 
 [Install]
 WantedBy=timers.target

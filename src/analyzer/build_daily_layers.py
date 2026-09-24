@@ -50,6 +50,7 @@ def main() -> None:
             connection,
             start_date=start_date,
             end_date=end_date,
+            area_code=None,
         )
 
         l2_counts = rebuild_daily_weather_features(
