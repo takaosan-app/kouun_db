@@ -7,16 +7,24 @@ result <job>:  called from kouun-notify@<job>.service via OnSuccess=/OnFailure=.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 JST = ZoneInfo("Asia/Tokyo")
 SYSLOG_IDENTIFIER = "kouun-notify"
+MESSAGE_VERSION = 1
 LOG_TAIL_LINES = 20
+WEBHOOK_TIMEOUT_SECONDS = 10
+SETTINGS_FILE = Path(__file__).resolve().parents[2] / ".env.notify"
 
 JOB_UNITS = {
     "collector": "kouun-collector.service",
@@ -40,11 +48,18 @@ def main(argv: list[str]) -> int:
         return 2
 
     if command == "started":
-        message = _base_message("started", job, unit)
+        message = _base_message(
+            "started",
+            job,
+            unit,
+            os.environ.get("INVOCATION_ID") or None,
+        )
     else:
         message = _result_message(job, unit)
 
-    _emit(message)
+    priority = "err" if message["event"] == "failed" else "info"
+    _journal(json.dumps(message, ensure_ascii=False), priority)
+    _post_webhook(message, _load_settings(SETTINGS_FILE))
     return 0
 
 
@@ -52,14 +67,18 @@ def _base_message(
     event: str,
     job: str,
     unit: str,
+    invocation_id: str | None,
 ) -> dict[str, Any]:
     return {
+        "version": MESSAGE_VERSION,
         "event": event,
         "job": job,
         "unit": unit,
         "host": socket.gethostname(),
         "at": datetime.now(JST).isoformat(timespec="seconds"),
+        "invocation_id": invocation_id,
     }
+
 
 def _unit_state(unit: str) -> dict[str, str]:
     completed = subprocess.run(
@@ -99,15 +118,15 @@ def _result_message(job: str, unit: str) -> dict[str, Any]:
         "finished" if succeeded else "failed",
         job,
         unit,
+        invocation_id,
     )
     message.update(
         {
-            "invocation_id": invocation_id,
             "service_result": service_result,
             "exit_status": _exit_status(
                 state.get("ExecMainStatus")
             ),
-            "summary": _last_json_object(lines),
+            "summary": _final_json_object(lines),
             "log_tail": (
                 None
                 if succeeded
@@ -116,7 +135,6 @@ def _result_message(job: str, unit: str) -> dict[str, Any]:
         }
     )
     return message
-
 
 
 def _read_job_lines(invocation_id: str) -> list[str]:
@@ -152,30 +170,106 @@ def _read_job_lines(invocation_id: str) -> list[str]:
     return lines
 
 
-def _last_json_object(lines: list[str]) -> dict[str, Any] | None:
-    for line in reversed(lines):
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+def _final_json_object(lines: list[str]) -> dict[str, Any] | None:
+    # Jobs print their result as the last line. Earlier JSON lines are
+    # progress records and must not be mistaken for the result.
+    if not lines:
+        return None
 
-        if isinstance(value, dict):
-            return value
+    try:
+        value = json.loads(lines[-1])
+    except json.JSONDecodeError:
+        return None
 
-    return None
+    return value if isinstance(value, dict) else None
 
 
 def _exit_status(value: str | None) -> int | str | None:
-    # A killed process reports a signal name such as "KILL".
     if value is None:
         return None
 
     return int(value) if value.isdigit() else value
 
 
-def _emit(message: dict[str, Any]) -> None:
-    priority = "err" if message["event"] == "failed" else "info"
+def _load_settings(path: Path) -> dict[str, str]:
+    settings = {}
 
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return settings
+
+    for line in text.splitlines():
+        line = line.strip()
+
+        if not line or line.startswith("#"):
+            continue
+
+        key, separator, value = line.partition("=")
+
+        if separator:
+            settings[key.strip()] = value.strip()
+
+    return settings
+
+def _is_safe_webhook_url(url: str) -> bool:
+    parsed = urllib.parse.urlsplit(url)
+
+    if parsed.scheme == "https":
+        return True
+
+    return (
+        parsed.scheme == "http"
+        and parsed.hostname in ("127.0.0.1", "localhost", "::1")
+    )
+
+def _post_webhook(
+    message: dict[str, Any],
+    settings: dict[str, str],
+) -> None:
+    url = settings.get("KOUUN_WEBHOOK_URL")
+
+    if not url:
+        return
+    
+    if not _is_safe_webhook_url(url):
+        _journal(
+            "webhook skipped: use https or a loopback address",
+            "warning",
+        )
+        return
+    
+    headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        "User-Agent": f"kouun-notify/{MESSAGE_VERSION}",
+    }
+    token = settings.get("KOUUN_WEBHOOK_TOKEN")
+
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(message, ensure_ascii=False).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=WEBHOOK_TIMEOUT_SECONDS,
+        ) as response:
+            response.read()
+    except (urllib.error.URLError, OSError) as error:
+        # The URL is not logged because it may contain a secret.
+        _journal(
+            f"webhook delivery failed: {error}",
+            "warning",
+        )
+
+
+def _journal(text: str, priority: str) -> None:
     subprocess.run(
         [
             "systemd-cat",
@@ -184,7 +278,7 @@ def _emit(message: dict[str, Any]) -> None:
             "-p",
             priority,
         ],
-        input=json.dumps(message, ensure_ascii=False),
+        input=text,
         text=True,
         check=True,
     )

@@ -7,4 +7,3 @@ User=masuday
 Group=masuday
 SupplementaryGroups=systemd-journal
 ExecStart=/usr/bin/python3 /opt/docker/kouun_db/deploy/notify/kouun_notify.py result %i
-EnvironmentFile=-/opt/docker/kouun_db/.env.notify
