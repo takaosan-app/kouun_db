@@ -1,6 +1,6 @@
 # 開発計画書 02：前半・データ収集編
 
-版：v0.7／更新日：2026-09-21
+版：v0.8／更新日：2026-09-27
 到達目標：観測所の実績値を、品質と出典を保ったまま自宅DBに継続蓄積する。
 
 ## 現在の実装状況
@@ -28,7 +28,7 @@
 | HTTP取得 | requestsを第一候補。HTMLが必要な場合はBeautifulSoup |
 | CSV解析 | 標準csvまたはpandas。元の列・文字列・品質を保持して変換 |
 | DB | 自宅PostgreSQL＋PostGIS。接続はPsycopg、構造変更は版管理したSQL |
-| 実行 | 自宅サーバーのDocker Compose。収集は単発ジョブとして定義し、ホスト側スケジューラーから起動。Linuxならsystemd timerを第一候補とし、OS確認後に確定 |
+| 実行 | 自宅サーバーのDocker Compose。収集は単発ジョブとして定義し、ホスト側のsystemd timerから起動する（v0.8で確定。8章「ジョブ実行と通知」） |
 | 初回試作 | １地点・直近の完結した１か月・日別値 |
 | 少数地点運用 | 基準地点＋比較用２～４地点。まず過去３年の日別値を目標 |
 | 初期必須項目 | 日平均・最高・最低気温、日降水量。観測可能な地点で検証 |
@@ -38,7 +38,7 @@
 | 更新 | 日別値を１日１回、前日分中心に取得。暫定実行時刻はJST 09:00、公開状況に合わせて変更 |
 | 訂正対応 | 毎回直近７日を再確認、月１回直近90日を再確認。さらに過去の指定期間を再取得可能にする |
 | 元ファイル | 圧縮して原則保持。C1で容量を測定し、全国拡大前に保存予算を確定 |
-| 通知 | 収集失敗はまず管理ログ。管理者への通知経路は運用開始時に決定 |
+| 通知 | ジョブの開始・終了・エラー終了をjournaldへ記録し、Webhookへ送信する（v0.8で確定。8章「ジョブ実行と通知」） |
 
 対象地域はユーザー指定の静岡県藤枝市稲川。サンプル候補は静岡（静岡地方気象台）・静岡空港・島田・高根山とする。農地の正確な緯度経度は未確定。３年分は前年比較用の初期目標で、気候の平年値の代わりにはしない。
 
@@ -260,13 +260,106 @@ L1の日別値は全国・30年でも現実的な容量に収まる。L0の詳�
 | collector | Pythonによる取得・整形・DB登録 | 定期または手動の単発ジョブ |
 | analyzer | Pythonによる分析・結果登録 | 収集成功後または手動の単発ジョブ |
 
-Compose自体を時刻スケジューラーとは扱わない。ホスト側の起動処理が収集の終了状態を確認し、成功後に分析を起動する。各ジョブはDBの接続準備を確認し、同じ対象の多重起動をロックで防ぐ。分析に失敗しても次回の収集は止めない。
+Compose自体を時刻スケジューラーとは扱わない。ホスト側の起動処理が収集の終了状態を確認し、成功後に分析を起動する（systemdの`OnSuccess=`で実現。次節）。各ジョブはDBの接続準備を確認し、同じ対象の多重起動をロックで防ぐ。分析に失敗しても次回の収集は止めない。
 
 DBデータ、元CSV、バックアップはコンテナの書き込み層に置かず、明示したボリュームまたはホストディレクトリに保存する。ボリュームの永続化とバックアップは別とし、バックアップは別の保存先へ複製する。通常の再作成でデータを失わないことをC3で検証する。
 
 成果物はCompose設定、Python用Dockerfile、依存関係の固定ファイル、秘密情報を含まない設定例、起動・再取得・復元の手順書。実際の秘密情報はリポジトリ外で管理する。イメージとDB拡張の版を固定し、更新はバックアップと互換性確認後に行う。
 
 初期は収集・分析が共通のPythonイメージを使ってもよいが、実行サービス・コマンド・権限は分ける。分析の依存関係が増えたらイメージも分離する。CPU・メモリ・ディスク上限は実機確認後に設定する。DBは内部ネットワークで接続し、インターネットへ直接公開しない。
+
+### ジョブ実行と通知（v0.8）
+
+日次ジョブの開始・終了・エラー終了を記録し、Webhookで管理者へ知らせる。
+失敗時の対応は再実行とし、再実行しても失敗する場合に原因を調査する。
+そのため実行履歴のDBテーブルは設けず、記録はjournaldに置く。
+
+#### unit構成
+
+unitファイルは`deploy/systemd/`に置き、`/etc/systemd/system/`へコピーして使う。
+
+| unit | 役割 |
+|---|---|
+| `kouun-db-daily.timer` | 毎日09:00 JST（最大10分の遅延）に`kouun-collector.service`を起動 |
+| `kouun-collector.service` | 収集（`collector.batch_jma_daily`）。成功時に`kouun-layers.service`を起動 |
+| `kouun-layers.service` | L1・L2更新（`analyzer.build_daily_layers`）。timerからは直接起動しない |
+| `kouun-notify@.service` | 通知unit。`%i`にジョブ名（`collector`・`layers`）が入る |
+
+```text
+kouun-db-daily.timer
+  └ kouun-collector.service
+       ├ ExecStartPre → 開始通知
+       ├ OnSuccess  → kouun-notify@collector（終了通知）＋ kouun-layers.service
+       └ OnFailure  → kouun-notify@collector（エラー終了通知）
+
+kouun-layers.service
+       ├ ExecStartPre → 開始通知
+       ├ OnSuccess  → kouun-notify@layers（終了通知）
+       └ OnFailure  → kouun-notify@layers（エラー終了通知）
+```
+
+収集が失敗した場合は分析へ進まない。コンテナの起動失敗、メモリ不足、タイムアウトもsystemdが
+失敗として検知するため、Python側で捕捉できない異常終了も通知される。
+
+通知処理は`deploy/notify/kouun_notify.py`（ホストのpython3、標準ライブラリのみ）が行う。
+開始通知の失敗で本体が止まらないよう、`ExecStartPre`は先頭に`-`を付ける。
+
+#### 通知の内容
+
+通知は1件ごとにJSONオブジェクトとし、journaldとWebhookに同じ内容を送る。
+
+| 項目 | 型 | started | finished | failed |
+|---|---|---|---|---|
+| `version` | number | `1` | `1` | `1` |
+| `event` | string | `started` | `finished` | `failed` |
+| `job` | string | ○ | ○ | ○ |
+| `unit` | string | ○ | ○ | ○ |
+| `host` | string | ○ | ○ | ○ |
+| `at` | string（ISO 8601、+09:00） | ○ | ○ | ○ |
+| `invocation_id` | string／null | ○ | ○ | ○ |
+| `service_result` | string | 項目なし | `success` | `success`以外 |
+| `exit_status` | number／null | 項目なし | ○ | ○ |
+| `summary` | object／null | 項目なし | ジョブの結果JSON | 結果JSONまたはnull |
+| `log_tail` | string[]／null | 項目なし | null | ログ末尾（最大20行） |
+
+- `invocation_id`はsystemdの実行ID。同じ実行の開始通知と終了通知で同じ値になる
+- `service_result`はsystemdの判定（`exit-code`、`signal`、`timeout`、`oom-kill`等）。取得できない場合は`unknown`
+- `summary`はジョブのログの最終行がJSONオブジェクトの場合だけ入れる。途中の進捗JSONを結果と取り違えないため
+- `log_tail`の要素は1行ずつの文字列。ログを読めない場合は空の配列
+- 項目の追加・変更時は`version`を上げ、受信側と合わせる。L3のジョブも同じ形式を使う
+
+#### Webhook送信
+
+| 項目 | 仕様 |
+|---|---|
+| 方式 | `POST`、`Content-Type: application/json; charset=utf-8` |
+| 認証 | `Authorization: Bearer <token>` |
+| 送り先の制限 | `https`、またはループバック（`127.0.0.1`、`localhost`、`::1`）の`http`のみ。それ以外は送信せず警告を記録 |
+| タイムアウト | 10秒 |
+| 成功判定 | 2xx |
+| 再送 | 行わない。送信失敗はjournaldへ警告として記録し、スクリプトは正常終了する |
+
+送り先URLとトークンはgit管理外の`.env.notify`（権限600）に置き、スクリプトが直接読む。
+書き方は`deploy/notify/env.notify.example`を参照する。
+URLは環境ごとに異なるため、計画書には記載しない。`.env.notify`がない、またはURLが空の場合は
+journaldへの記録だけを行う。
+
+#### 確認方法
+
+```bash
+journalctl -t kouun-notify --since today      # 通知の一覧
+journalctl -t kouun-notify -p err             # エラー終了のみ
+journalctl -t kouun-notify -p warning         # エラー終了とWebhook送信失敗
+```
+
+#### 設計上の注意
+
+- `OnSuccess=`と`OnFailure=`に同じunitを書くと、systemdは`MONITOR_*`環境変数を渡さない
+  （systemd 257で確認）。そのため通知処理は`systemctl show`でジョブのunitの
+  `Result`・`InvocationID`・`ExecMainStatus`を直接読む
+- ジョブのunitのログは`_SYSTEMD_INVOCATION_ID`で今回の実行分だけを取り出す。通知自身の行は
+  `SYSLOG_IDENTIFIER=kouun-notify`で除外する
+- 処理コードの変更はイメージの再ビルドまで反映されない。変更後は`docker compose build`を行う
 
 ## 9. 実装順序と完了条件
 
@@ -294,7 +387,7 @@ DBデータ、元CSV、バックアップはコンテナの書き込み層に置
 | 農地の正確なピン位置 | C0～アプリP0 | 藤枝市稲川は確定。地番・緯度経度は未確定 |
 | 自宅サーバーOS・CPU・RAM・容量・Docker環境 | C0 | 実機導入前に確認 |
 | 全期間・時別値の取得経路と量 | C1後 | 日別・少数地点を先行 |
-| バックアップ先・管理者通知 | C3前 | 運用開始条件とする |
+| バックアップ先 | C3前 | 運用開始条件とする。管理者通知はv0.8で決定済み |
 | 年代別の観測所履歴の網羅性 | C2 | 不明のまま比較可能と判定しない |
 | ナウキャスト・農地の追加取得 | 初期版実証後 | 初期の必須要件にしない |
 
@@ -309,3 +402,4 @@ DBデータ、元CSV、バックアップはコンテナの書き込み層に置
 | 2026-09-14 | v0.5 | 日照・気圧・湿度・風・積雪・天気概況を可変項目対応後にまとめて追加する方針を反映 |
 | 2026-09-21 | v0.6 | 文書再編。旧`ANALYZE.md`の3章（気象データソース）と2.7（データ量の方針）を取り込み。リクエスト間隔の記載を実装に合わせて2秒へ修正 |
 | 2026-09-21 | v0.7 | 日誌の降雨記録の置き場を`diary_entry`へ修正 |
+| 2026-09-27 | v0.8 | 実行方式をsystemd timerに確定。日次ジョブを収集・L1L2の2unitへ分割し、開始・終了・エラー終了の通知（journald＋Webhook）を追加 |
