@@ -30,6 +30,7 @@ JOB_UNITS = {
     "collector": "kouun-collector.service",
     "layers": "kouun-layers.service",
     "health": "kouun-health.service",
+    "backup": "kouun-backup.service",
 }
 
 

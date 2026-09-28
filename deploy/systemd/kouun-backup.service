@@ -1,0 +1,19 @@
+[Unit]
+Description=kouun_db daily backup to the home server
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnSuccess=kouun-notify@backup.service
+OnFailure=kouun-notify@backup.service
+
+[Service]
+Type=oneshot
+User=masuday
+Group=masuday
+SupplementaryGroups=docker
+WorkingDirectory=/opt/docker/kouun_db
+ExecStart=/usr/bin/python3 /opt/docker/kouun_db/deploy/backup/kouun_backup.py
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
