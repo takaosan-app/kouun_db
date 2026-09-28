@@ -1,6 +1,6 @@
 # 開発計画書 02：前半・データ収集編
 
-版：v0.10／更新日：2026-09-28
+版：v0.11／更新日：2026-09-28
 到達目標：観測所の実績値を、品質と出典を保ったまま自宅DBに継続蓄積する。
 
 ## 現在の実装状況
@@ -308,61 +308,13 @@ kouun-layers.service
 通知処理は`deploy/notify/kouun_notify.py`（ホストのpython3、標準ライブラリのみ）が行う。
 開始通知の失敗で本体が止まらないよう、`ExecStartPre`は先頭に`-`を付ける。
 
-#### 通知の内容
+#### 通知の仕様
 
-通知は1件ごとにJSONオブジェクトとし、journaldとWebhookに同じ内容を送る。
+通知の形式（version 1・2）、Webhookの送信の決まり、`.env.notify`の設定項目、確認のコマンド、
+送信側の実装上の注意は[08_notification.md](08_notification.md)を正本とする。
 
-| 項目 | 型 | started | finished | failed |
-|---|---|---|---|---|
-| `version` | number | `1` | `1` | `1` |
-| `event` | string | `started` | `finished` | `failed` |
-| `job` | string | ○ | ○ | ○ |
-| `unit` | string | ○ | ○ | ○ |
-| `host` | string | ○ | ○ | ○ |
-| `at` | string（ISO 8601、+09:00） | ○ | ○ | ○ |
-| `invocation_id` | string／null | ○ | ○ | ○ |
-| `service_result` | string | 項目なし | `success` | `success`以外 |
-| `exit_status` | number／null | 項目なし | ○ | ○ |
-| `summary` | object／null | 項目なし | ジョブの結果JSON | 結果JSONまたはnull |
-| `log_tail` | string[]／null | 項目なし | null | ログ末尾（最大20行） |
+#### 運用上の注意
 
-- `invocation_id`はsystemdの実行ID。同じ実行の開始通知と終了通知で同じ値になる
-- `service_result`はsystemdの判定（`exit-code`、`signal`、`timeout`、`oom-kill`等）。取得できない場合は`unknown`
-- `summary`はジョブのログの最終行がJSONオブジェクトの場合だけ入れる。途中の進捗JSONを結果と取り違えないため
-- `log_tail`の要素は1行ずつの文字列。ログを読めない場合は空の配列
-- 項目の追加・変更時は`version`を上げ、受信側と合わせる。L3のジョブも同じ形式を使う
-
-#### Webhook送信
-
-| 項目 | 仕様 |
-|---|---|
-| 方式 | `POST`、`Content-Type: application/json; charset=utf-8` |
-| 認証 | `Authorization: Bearer <token>` |
-| 送り先の制限 | `https`、またはループバック（`127.0.0.1`、`localhost`、`::1`）の`http`のみ。それ以外は送信せず警告を記録 |
-| タイムアウト | 10秒 |
-| 成功判定 | 2xx |
-| 再送 | 行わない。送信失敗はjournaldへ警告として記録し、スクリプトは正常終了する |
-
-送り先URLとトークンはgit管理外の`.env.notify`（権限600）に置き、スクリプトが直接読む。
-書き方は`deploy/notify/env.notify.example`を参照する。
-URLは環境ごとに異なるため、計画書には記載しない。`.env.notify`がない、またはURLが空の場合は
-journaldへの記録だけを行う。
-
-#### 確認方法
-
-```bash
-journalctl -t kouun-notify --since today      # 通知の一覧
-journalctl -t kouun-notify -p err             # エラー終了のみ
-journalctl -t kouun-notify -p warning         # エラー終了とWebhook送信失敗
-```
-
-#### 設計上の注意
-
-- `OnSuccess=`と`OnFailure=`に同じunitを書くと、systemdは`MONITOR_*`環境変数を渡さない
-  （systemd 257で確認）。そのため通知処理は`systemctl show`でジョブのunitの
-  `Result`・`InvocationID`・`ExecMainStatus`を直接読む
-- ジョブのunitのログは`_SYSTEMD_INVOCATION_ID`で今回の実行分だけを取り出す。通知自身の行は
-  `SYSLOG_IDENTIFIER=kouun-notify`で除外する
 - 処理コードの変更はイメージの再ビルドまで反映されない。変更後は`docker compose build`を行う
 
 ## 9. 実装順序と完了条件
@@ -409,3 +361,4 @@ journalctl -t kouun-notify -p warning         # エラー終了とWebhook送信�
 | 2026-09-27 | v0.8 | 実行方式をsystemd timerに確定。日次ジョブを収集・L1L2の2unitへ分割し、開始・終了・エラー終了の通知（journald＋Webhook）を追加 |
 | 2026-09-28 | v0.9 | サーバー状態の定点報告（`kouun-health`、毎日08:00）を追加。通知形式version 2までの暫定として既存の`finished`で送る |
 | 2026-09-28 | v0.10 | 日次バックアップ（`kouun-backup`、06:00、resticで自宅サーバーへ）を追加。保持を14世代から7日＋週4へ変更 |
+| 2026-09-28 | v0.11 | 通知の形式・Webhook送信・確認方法・送信側の実装上の注意を08編へ移し、参照に置き換えた |

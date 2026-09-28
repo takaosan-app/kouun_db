@@ -14,6 +14,7 @@
 | データ確認Viewer | `docs/plans/05_data_view.md` |
 | アプリ構築 | `docs/plans/06_application.md` |
 | L3のDB設計 | `docs/plans/07_database.md` |
+| 運用通知（Webhook） | `docs/plans/08_notification.md` |
 | 進捗・残課題 | `docs/STATUS_PLAN.md` |
 | 事業性・法規制・外部確認 | `docs/BUSINESS.md` |
 
