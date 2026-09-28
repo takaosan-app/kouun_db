@@ -26,7 +26,7 @@ OBSERVATION_CATALOG_QUERY = """
             mapping.id DESC
     )
     SELECT
-        station.observation_area_code AS area_code,
+        membership.area_code,
         station.station_key,
         station.name AS station_name,
         official_station.official_station_number,
@@ -40,13 +40,15 @@ OBSERVATION_CATALOG_QUERY = """
     FROM weather.observation
     JOIN weather.station
         ON station.id = observation.station_id
+    JOIN weather.station_observation_area AS membership
+        ON membership.station_id = station.id
     JOIN weather.element
         ON element.id = observation.element_id
     LEFT JOIN official_station
         ON official_station.station_id = station.id
-    WHERE station.observation_area_code = %s
+    WHERE membership.area_code = %s
     GROUP BY
-        station.observation_area_code,
+        membership.area_code,
         station.station_key,
         station.name,
         official_station.official_station_number,
@@ -55,7 +57,7 @@ OBSERVATION_CATALOG_QUERY = """
         element.unit,
         element.value_kind
     ORDER BY
-        station.observation_area_code,
+        membership.area_code,
         official_station.official_station_number NULLS LAST,
         station.station_key,
         element.name,
