@@ -1,0 +1,10 @@
+[Unit]
+Description=Run kouun_db host health report at 08:00 JST
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Asia/Tokyo
+AccuracySec=1m
+Unit=kouun-health.service
+
+[Install]
+WantedBy=timers.target

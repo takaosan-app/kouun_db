@@ -29,6 +29,7 @@ SETTINGS_FILE = Path(__file__).resolve().parents[2] / ".env.notify"
 JOB_UNITS = {
     "collector": "kouun-collector.service",
     "layers": "kouun-layers.service",
+    "health": "kouun-health.service",
 }
 
 

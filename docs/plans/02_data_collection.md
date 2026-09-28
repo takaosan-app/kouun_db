@@ -1,6 +1,6 @@
 # 開発計画書 02：前半・データ収集編
 
-版：v0.8／更新日：2026-09-27
+版：v0.9／更新日：2026-09-28
 到達目標：観測所の実績値を、品質と出典を保ったまま自宅DBに継続蓄積する。
 
 ## 現在の実装状況
@@ -283,7 +283,9 @@ unitファイルは`deploy/systemd/`に置き、`/etc/systemd/system/`へコピ�
 | `kouun-db-daily.timer` | 毎日09:00 JST（最大10分の遅延）に`kouun-collector.service`を起動 |
 | `kouun-collector.service` | 収集（`collector.batch_jma_daily`）。成功時に`kouun-layers.service`を起動 |
 | `kouun-layers.service` | L1・L2更新（`analyzer.build_daily_layers`）。timerからは直接起動しない |
-| `kouun-notify@.service` | 通知unit。`%i`にジョブ名（`collector`・`layers`）が入る |
+| `kouun-notify@.service` | 通知unit。`%i`にジョブ名（`collector`・`layers`・`health`）が入る |
+| `kouun-health.timer` | 毎日08:00 JSTに`kouun-health.service`を起動（VPSのみ） |
+| `kouun-health.service` | サーバーの状態（メモリ、ディスク、DB容量、負荷、コンテナ、失敗unit）を報告。開始通知は送らず、`finished`として送る（通知形式version 2までの暫定） |
 
 ```text
 kouun-db-daily.timer
@@ -403,3 +405,4 @@ journalctl -t kouun-notify -p warning         # エラー終了とWebhook送信�
 | 2026-09-21 | v0.6 | 文書再編。旧`ANALYZE.md`の3章（気象データソース）と2.7（データ量の方針）を取り込み。リクエスト間隔の記載を実装に合わせて2秒へ修正 |
 | 2026-09-21 | v0.7 | 日誌の降雨記録の置き場を`diary_entry`へ修正 |
 | 2026-09-27 | v0.8 | 実行方式をsystemd timerに確定。日次ジョブを収集・L1L2の2unitへ分割し、開始・終了・エラー終了の通知（journald＋Webhook）を追加 |
+| 2026-09-28 | v0.9 | サーバー状態の定点報告（`kouun-health`、毎日08:00）を追加。通知形式version 2までの暫定として既存の`finished`で送る |
