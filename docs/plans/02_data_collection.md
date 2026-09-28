@@ -284,7 +284,7 @@ unitファイルは`deploy/systemd/`に置き、`/etc/systemd/system/`へコピ�
 | `kouun-collector.service` | 収集（`collector.batch_jma_daily`）。成功時に`kouun-layers.service`を起動 |
 | `kouun-layers.service` | L1・L2更新（`analyzer.build_daily_layers`）。timerからは直接起動しない |
 | `kouun-notify@.service` | 通知unit。`%i`にジョブ名（`collector`・`layers`・`health`）が入る |
-| `kouun-health.timer` | 毎日08:00 JSTに`kouun-health.service`を起動（VPSのみ） |
+| `kouun-health.timer` | 毎日08:00 JSTに`kouun-health.service`を起動（VPSと自宅サーバーの両方。送り先は各サーバーの`.env.notify`） |
 | `kouun-health.service` | サーバーの状態（メモリ、ディスク、DB容量、負荷、コンテナ、失敗unit）を報告。開始通知は送らず、`finished`として送る（通知形式version 2までの暫定） |
 
 ```text
