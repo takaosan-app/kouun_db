@@ -1,6 +1,6 @@
 # 開発計画書 01：全体編
 
-版：v0.8／更新日：2026-09-21
+版：v0.9／更新日：2026-09-29
 目的：大きな流れと機能を共有する。詳細設計は各編を正本とする。
 
 ## 1. 目指すもの
@@ -20,13 +20,13 @@
 ```text
 気象台・観測所の公開データ
          ↓ Pythonで取得・整形・品質確認
-自宅サーバー：PostgreSQL＋PostGIS ＋ 元ファイル保存（L0・L1・L2を全国・全期間）
+VPS（本番。開発は自宅サーバー）：PostgreSQL＋PostGIS ＋ 元ファイル保存（L0・L1・L2を全国・全期間）
          ↓ 配信範囲のみ同期
 アプリ向けDB：Supabase（利用者・圃場・栽培案件・イベント・L3結果）
          ↓ 直接接続（クライアントSDK）
 Flutter：PCブラウザ／Android／iPhone
 
-GCP：日次でSupabaseへ接続し、L3（risk_result）を計算（Cloud Run Jobs、現在の案）
+VPS：日次でSupabaseへ接続し、L3（risk_result）を計算（開発は自宅サーバー）
 日誌画像：Cloudflareへ保存し、DBにはオブジェクトキーを持つ
 後から追加：農地ポリゴン、降水予報・ナウキャスト、現地センサー
 ```
@@ -41,10 +41,11 @@ GCP：日次でSupabaseへ接続し、L3（risk_result）を計算（Cloud Run J
 役割の配置は次のとおり。
 
 ```text
-自宅サーバー   L0、取り込みETL、L1・L2生成
+VPS            L0、取り込みETL、L1・L2生成、L2の同期、L3（risk_result）の日次計算
+               （開発は自宅サーバー）
 Supabase       必要なL1・L2、利用者データ、圃場、栽培案件、イベント、L3の結果、
                RLSによる権限制御、検証・多段書き込み用の関数、軽量な同期処理
-GCP            L3（risk_result）の日次計算（Cloud Run Jobs、現在の案）
+GCP            Edge Functionで足りない、アプリから呼ばれる処理が出た場合の候補（Cloud Run）
 Cloudflare     日誌画像の保存
 
 常時稼働のバックエンドAPIは持たない。FlutterはSupabaseへ直接接続する。詳細は
@@ -123,7 +124,7 @@ L0は配布形式を忠実に取り込み、後からL1以降を再生成でき�
 | API | 常時稼働の自前APIは持たない。検証・多段書き込みはSupabaseのPostgres関数、軽量な同期処理はEdge Function |
 | 画面 | ユーザーの希望を踏まえてFlutterを計画上採用。Supabaseへ直接接続 |
 | アプリ向け配信 | L1は直近18か月、L2は直近11年を同期。標準PostgreSQL中心に設計 |
-| 実行場所 | L3日次バッチ（risk_result計算）はGCPのCloud Run Jobsを現在の案とする。既存のPython資産を再利用できる。画像保存はCloudflare |
+| 実行場所 | 決まった時刻に動く処理（L3日次計算、L2の同期）はVPS（開発は自宅サーバー）。既存のPython資産と運用の仕組み（systemd timer、通知、バックアップ）を再利用する。アプリから呼ばれる処理はSupabaseのPostgres関数とEdge Function、足りない場合にGCP（Cloud Run）。画像保存はCloudflare |
 
 SupabaseのPostGIS対応、FlutterのWeb・モバイル対応は公式資料で確認できる。実際の移行条件や対応OSは実装時に再確認する。[Supabase](https://supabase.com/docs/guides/database/extensions/postgis)、[Flutter](https://docs.flutter.dev/platform-integration/web)
 
@@ -159,3 +160,4 @@ SupabaseのPostGIS対応、FlutterのWeb・モバイル対応は公式資料で�
 | 2026-09-21 | v0.6 | 文書再編。旧`ANALYZE.md`の四層構造・計算方式・配置方針を取り込み、全体構成図をSupabase・GCP・Cloudflare構成へ更新 |
 | 2026-09-21 | v0.7 | アプリ向け配信の保持期間をL1は直近18か月、L2は直近11年へ変更 |
 | 2026-09-21 | v0.8 | 常時稼働の自前APIを廃止しSupabase直接接続へ変更。L3日次バッチの実行場所をGCP Cloud Run Jobsと明記 |
+| 2026-09-29 | v0.9 | L3日次計算の実行場所をGCPからVPSへ変更。GCP（Cloud Run）はEdge Functionで足りない処理が出た場合の候補とした |
