@@ -31,6 +31,7 @@ JOB_UNITS = {
     "layers": "kouun-layers.service",
     "health": "kouun-health.service",
     "backup": "kouun-backup.service",
+    "sync": "kouun-sync.service",
 }
 
 

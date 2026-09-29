@@ -2,7 +2,7 @@
 Description=kouun_db daily L1 and L2 build
 Requires=docker.service
 After=docker.service
-OnSuccess=kouun-notify@layers.service
+OnSuccess=kouun-notify@layers.service kouun-sync.service
 OnFailure=kouun-notify@layers.service
 
 [Service]

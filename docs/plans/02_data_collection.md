@@ -1,6 +1,6 @@
 # 開発計画書 02：前半・データ収集編
 
-版：v0.12／更新日：2026-09-29
+版：v0.13／更新日：2026-09-29
 到達目標：観測所の実績値を、品質と出典を保ったまま自宅DBに継続蓄積する。
 
 ## 現在の実装状況
@@ -282,8 +282,9 @@ unitファイルは`deploy/systemd/`に置き、`/etc/systemd/system/`へコピ�
 |---|---|
 | `kouun-db-daily.timer` | 毎日05:30 JST（最大10分の遅延）に`kouun-collector.service`を起動 |
 | `kouun-collector.service` | 収集（`collector.batch_jma_daily`）。成功時に`kouun-layers.service`を起動 |
-| `kouun-layers.service` | L1・L2更新（`analyzer.build_daily_layers`）。timerからは直接起動しない |
-| `kouun-notify@.service` | 通知unit。`%i`にジョブ名（`collector`・`layers`・`health`）が入る |
+| `kouun-layers.service` | L1・L2更新（`analyzer.build_daily_layers`）。timerからは直接起動しない。成功時に`kouun-sync.service`を起動 |
+| `kouun-sync.service` | アプリ向けDB（Supabase）への同期（`sync.sync_app_db`）。6都県143観測所のL1（18か月）・L2（11年）・平年値等を写す。VPSは本番、自宅サーバーは開発用Supabase CLIへ写す（接続先は各サーバーの`.env`の`APP_DB_*`） |
+| `kouun-notify@.service` | 通知unit。`%i`にジョブ名（`collector`・`layers`・`sync`・`health`・`backup`）が入る |
 | `kouun-health.timer` | 毎日08:00 JSTに`kouun-health.service`を起動（VPSと自宅サーバーの両方。送り先は各サーバーの`.env.notify`） |
 | `kouun-health.service` | サーバーの状態（メモリ、ディスク、DB容量、負荷、コンテナ、失敗unit）を報告。開始通知は送らず、`finished`として送る（通知形式version 2までの暫定） |
 | `kouun-backup.timer` | 毎日04:30 JSTに`kouun-backup.service`を起動（VPSのみ）。収集等の成否に関係なく毎日動く |
@@ -298,8 +299,13 @@ kouun-db-daily.timer
 
 kouun-layers.service
        ├ ExecStartPre → 開始通知
-       ├ OnSuccess  → kouun-notify@layers（終了通知）
+       ├ OnSuccess  → kouun-notify@layers（終了通知）＋ kouun-sync.service
        └ OnFailure  → kouun-notify@layers（エラー終了通知）
+
+kouun-sync.service
+       ├ ExecStartPre → 開始通知
+       ├ OnSuccess  → kouun-notify@sync（終了通知）
+       └ OnFailure  → kouun-notify@sync（エラー終了通知）
 ```
 
 収集が失敗した場合は分析へ進まない。コンテナの起動失敗、メモリ不足、タイムアウトもsystemdが
@@ -363,3 +369,4 @@ kouun-layers.service
 | 2026-09-28 | v0.10 | 日次バックアップ（`kouun-backup`、06:00、resticで自宅サーバーへ）を追加。保持を14世代から7日＋週4へ変更 |
 | 2026-09-28 | v0.11 | 通知の形式・Webhook送信・確認方法・送信側の実装上の注意を08編へ移し、参照に置き換えた |
 | 2026-09-29 | v0.12 | バックアップの時刻を06:00から04:30へ、収集を09:00から05:30へ変更。5時台に前日分がそろうかは、並行運用中の自宅サーバーの取得結果と比べて確かめる |
+| 2026-09-29 | v0.13 | L1・L2更新の成功後にアプリ向けDB（Supabase）への同期（`kouun-sync.service`）を起動する構成を追加 |
