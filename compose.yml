@@ -141,6 +141,28 @@ services:
       DB_USER: ${ANALYZER_DB_USER}
       DB_PASSWORD: ${ANALYZER_DB_PASSWORD}
 
+  syncer:
+    <<: *python-service
+    command: ["python", "--version"]
+
+    environment:
+      <<: *python-environment
+      DB_USER: ${VIEWER_DB_USER}
+      DB_PASSWORD: ${VIEWER_DB_PASSWORD}
+      APP_DB_HOST: ${APP_DB_HOST}
+      APP_DB_PORT: ${APP_DB_PORT}
+      APP_DB_NAME: ${APP_DB_NAME}
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      APP_DB_SSLMODE: ${APP_DB_SSLMODE}
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    networks:
+      - backend
+      - sync_egress
+
   viewer:
     <<: *python-service
 
@@ -177,4 +199,5 @@ networks:
   backend:
     internal: true
   collector_egress:
+  sync_egress:
   viewer_ingress:
