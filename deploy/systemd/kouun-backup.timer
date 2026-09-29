@@ -1,8 +1,8 @@
 [Unit]
-Description=Run kouun_db backup at 06:00 JST
+Description=Run kouun_db backup at 04:30 JST
 
 [Timer]
-OnCalendar=*-*-* 06:00:00 Asia/Tokyo
+OnCalendar=*-*-* 04:30:00 Asia/Tokyo
 AccuracySec=1m
 Unit=kouun-backup.service
 
