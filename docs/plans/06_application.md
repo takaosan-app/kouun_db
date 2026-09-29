@@ -162,6 +162,8 @@ Neonと比較し、次の理由でSupabaseとした。
 | 本番 | Supabase東京の無料プロジェクト（無料枠の2つ目。別アプリで1つ使用中のため、これで枠が埋まる） |
 | 開発 | 自宅サーバーのSupabase CLI（`/opt/docker/supabase/kouun`、リポジトリ`kouun_supabase`）。MacBook ProからTailscale経由で接続する。使わない機能（Realtime、Storage、Edge Functions、ログ分析）は停止している |
 
+開発環境の設置・起動・接続の手順は、リポジトリ`kouun_supabase`のREADME.mdにある。
+
 無料枠の弱点への対策は次のとおり。
 
 - バックアップ：VPSの日次バックアップ（restic、02編8章）に、Supabase本番DBのダンプを加える
