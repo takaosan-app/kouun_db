@@ -1,6 +1,6 @@
 # 開発計画書 07：DB設計編
 
-版：v0.10／更新日：2026-09-29  
+版：v0.11／更新日：2026-09-29  
 状態：概念設計（テーブルと関係のみ。列・型・制約は未確定）  
 到達目標：気象データと利用者データを分けたまま、栽培状態からリスク判定までを再現可能に表現する。
 
@@ -320,12 +320,13 @@ Flutterは常時稼働の自前APIを経由せず、Supabaseへ直接接続す�
 |---|---|---|
 | PostgresのRPC関数 | Supabase内蔵（SQL/PLpgSQL） | 04編7章の検証規則、複数テーブルへの一括書き込み |
 | Edge Function | Supabase内蔵（TypeScript） | 標高取得（06編4.2）等、短時間で終わる軽量な処理 |
-| VPSのsystemd timer | VPS（Python、日次。開発は自宅サーバー） | `risk_result`の計算。既存の収集・分析コードと同じ言語・同じ運用の仕組み（通知、バックアップ） |
+| VPSのPython | VPS（開発は自宅サーバー）。毎朝の同期の後と、イベント登録時のWebhook（Cloudflare Tunnel経由） | `risk_result`の判定。既存の収集・分析コードと同じ言語・同じ運用の仕組み（通知、バックアップ） |
+| トリガー・Database Webhooks | Supabase内蔵 | `cultivation_state`の再計算、イベント登録時のVPSへの通知 |
 
 Edge Functionは実行時間に上限があるため、時間の読めないバッチ処理には使わない。
 `risk_result`はL2・`cultivation_state`・日誌を入力とし、いずれもSupabase側にあるため、
 VPSからSupabaseへライブ接続して計算する。アプリから呼ばれる処理でEdge Functionでは足りないものが
-出た場合は、GCP（Cloud Run）を検討する（06編2.4）。入力直後に判定を即時反映するかは、L3の設計で決める。
+出た場合は、GCP（Cloud Run）を検討する（06編2.4）。入力直後の判定は、イベント登録時のWebhookでVPSが行う（06編2.6）。
 
 ## 4. 依存の階層
 
@@ -417,3 +418,4 @@ personal_risk_rule（仮）  利用者が自分の経験則を登録する。既
 | 2026-09-21 | v0.8 | `cultivation_state`をビューからテーブルへ変更し、04編2.3の4状態軸（生育段階・所在・処理状態・案件状態）をすべて持たせる方針とした。理由はビューだと`security_invoker`未設定でRLSを素通りする恐れがあるため。`cultivation_event`書き込み時のトリガーで再計算するキャッシュとして位置づけた |
 | 2026-09-21 | v0.9 | `cultivation_state`の列一覧を確定。`treatment_status`はJSONではなくテキスト＋開始日の2列とし、複数の処理状態が重なる必要が生じた場合は`field_weather_station`と同じ「別テーブルで1対多を表現する」方針へ切り出すと明記した |
 | 2026-09-29 | v0.10 | 開発の場所を自宅PostgreSQLの`app`スキーマからSupabase CLI（`kouun_supabase`）へ変更。`risk_result`の計算場所をGCP Cloud Run JobsからVPSへ変更（読み書きするのはアプリ向けDBのまま）。対象観測所を東京都を加えた143へ更新 |
+| 2026-09-29 | v0.11 | 3.6に、イベント登録時のWebhook（Cloudflare Tunnel経由）でVPSが判定する構成と、トリガー・Database Webhooksの役割を追記 |
