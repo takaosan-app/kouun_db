@@ -28,6 +28,9 @@ kouun_app も同じ kouun_docs を `docs/` に置き、両方のリポジトリ�
 - 編集後は、① `docs/` の中でコミットして kouun_docs へ push し、② 親リポジトリで `docs` の参照先の更新をコミットする。
 - 相手側のリポジトリで行われた文書の更新は、`git submodule update --remote docs` で取り込み、参照先の更新をコミットする。
 
+再編前の文書は `docs/_archive/` に日付フォルダで凍結してある。記述の行方は
+`docs/_archive/2026-09-21/MIGRATION_LEDGER.md` で追える。
+
 
 ## 開発・コーディング手法
 - ファイルやフォルダの作成、コーディングの記載は開発者が行います。
