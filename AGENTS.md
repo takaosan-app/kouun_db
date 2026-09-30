@@ -18,8 +18,16 @@
 | 進捗・残課題 | `docs/STATUS_PLAN.md` |
 | 事業性・法規制・外部確認 | `docs/BUSINESS.md` |
 
-再編前の文書は `docs/_archive/` に日付フォルダで凍結してある。記述の行方は
-`docs/_archive/2026-09-21/MIGRATION_LEDGER.md` で追える。
+### 文書リポジトリ（submodule）
+
+`docs/` は別リポジトリ `takaosan-app/kouun_docs` を submodule として参照している。
+kouun_app も同じ kouun_docs を `docs/` に置き、両方のリポジトリで同じ文書を共有する。
+
+- clone するときは `git clone --recurse-submodules` を使う。既存の clone では `git submodule update --init` を一度実行する。
+- 文書を編集するときは、先に `docs/` の中で `git switch main` と `git pull` を実行する（submodule は detached HEAD になりやすい）。
+- 編集後は、① `docs/` の中でコミットして kouun_docs へ push し、② 親リポジトリで `docs` の参照先の更新をコミットする。
+- 相手側のリポジトリで行われた文書の更新は、`git submodule update --remote docs` で取り込み、参照先の更新をコミットする。
+
 
 ## 開発・コーディング手法
 - ファイルやフォルダの作成、コーディングの記載は開発者が行います。
